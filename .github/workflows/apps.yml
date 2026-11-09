@@ -25,14 +25,14 @@ jobs:
     name: scan-link (swift test)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - run: swift test --package-path packages/scan-link
 
   ios:
     name: 3lay-ios (swift test, device build)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Unit tests (CaptureKit)
         run: swift test --package-path apps/3lay-ios
       # ObjectCaptureSession is not in the simulator SDK, so compile against the device SDK.
@@ -58,7 +58,7 @@ jobs:
     name: 3lay-mac (build, mesh check, LAN loopback check)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Builds the app, then runs the real LanClient against the real PhoneReceiver on loopback.
       - run: ./rebuild_check
         working-directory: apps/3lay-mac
