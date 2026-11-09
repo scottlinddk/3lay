@@ -2,7 +2,16 @@
 import Foundation
 import RealityKit
 
-enum OnDeviceError: Error { case failed(String) }
+enum OnDeviceError: LocalizedError {
+    case failed(String)
+
+    /// Without this, `localizedDescription` is the opaque "(CaptureApp.OnDeviceError error 0.)".
+    var errorDescription: String? {
+        switch self {
+        case .failed(let reason): return "Building the 3D model on this phone failed (\(reason))."
+        }
+    }
+}
 
 /// Runs PhotogrammetrySession on the phone. `.reduced` keeps memory and time sane; the iOS SDK has no `.medium`.
 enum OnDeviceReconstruction {
