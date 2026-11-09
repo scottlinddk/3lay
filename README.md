@@ -25,7 +25,14 @@ swift test --package-path apps/3lay-ios
 (cd apps/3lay-mac && ./rebuild_check)   # builds build/ThreeLayMacOS.app and runs the loopback check
 ```
 
-3lay iOS additionally needs XcodeGen and a device with LiDAR, see `apps/3lay-ios/README.md`.
+To edit and run both apps in Xcode:
+
+```sh
+./scripts/open-xcode.sh   # installs XcodeGen if missing, generates both projects, opens 3lay.xcworkspace
+```
+
+Rerun it after pulling changes to a `project.yml` or adding source files. Schemes: `ThreeLayMacOS` and
+`ThreeLayIOS`. 3lay iOS needs a LiDAR device and your signing team, see `apps/3lay-ios/README.md`.
 
 ## Not included from the source repositories
 

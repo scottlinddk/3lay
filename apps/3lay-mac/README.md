@@ -6,6 +6,8 @@ A Swift desktop prototype for bringing phone scans onto a print plate. It accept
 
 On macOS, run `./build.sh` from this directory, then open `build/ThreeLayMacOS.app` (shown as 3lay Mac). Run `./rebuild_check` to rebuild and check mesh import and export. The build uses the Swift compiler included with Xcode and needs no downloaded packages.
 
+To edit and run in Xcode, run `../../scripts/open-xcode.sh` and run the `ThreeLayMacOS` scheme in `3lay.xcworkspace`. It uses `project.yml`, so the app gets its Info.plist (Bonjour, local network) and bundled `convert_usdz.swift`. `build.sh` remains the CI/release build; keep the plist keys in both in sync.
+
 ## Companion app import
 
 Paste the `scan3d://pair` link from the companion web app into **Companion app**, choose **Find phone scans**, then import a listed scan. The app lists jobs and artifacts on the paired HTTPS server with the link's device token. A reconstructed USDZ is converted locally to STL with macOS ModelIO or a `usdcat` fallback. The fallback passed a synthetic tetrahedron check; a real phone capture still needs a device test. The link stays in memory while the app is open.
