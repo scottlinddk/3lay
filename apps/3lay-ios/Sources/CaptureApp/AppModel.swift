@@ -137,6 +137,9 @@ final class AppModel: ObservableObject {
         } catch LanError.wrongCode, LanError.lockedOut {
             phase = .failed("\(mac.name) did not accept the code. If you made a new code on the Mac, "
                 + "open Nearby Mac and enter it again. Your scan is kept on this phone.")
+        } catch let error as OnDeviceError {
+            // Reconstruction failed before anything was sent, so don't blame the Mac or the network.
+            phase = .failed("\(error.localizedDescription) Your scan is kept on this phone.")
         } catch {
             phase = .failed("Could not send to \(mac.name): \(error.localizedDescription) Your scan is kept on this phone.")
         }
@@ -194,6 +197,18 @@ final class AppModel: ObservableObject {
     func recoverCapture() {
         if let folder = pendingCapture { phase = .choosing(folder: folder) }
         else { phase = isPaired ? .ready : .needsPairing }
+    }
+
+    /// Leaves the "Capture complete" screen but keeps the scan, so "Resume saved capture" can reopen it.
+    func leaveCapture() {
+        phase = isPaired ? .ready : .needsPairing
+    }
+
+    /// Deletes the unsent scan for good. Callers must have asked the user first.
+    func discardCapture() {
+        if let folder = pendingCapture { try? FileManager.default.removeItem(at: folder) }
+        clearPendingCapture()
+        phase = isPaired ? .ready : .needsPairing
     }
 
     private func clearPendingCapture() {

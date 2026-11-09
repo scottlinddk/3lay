@@ -5,6 +5,7 @@ import SwiftUI
 public struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var pairingText = ""
+    @State private var confirmDiscard = false
 
     public init() {}
 
@@ -89,6 +90,15 @@ public struct RootView: View {
                         Task { await model.submitOnDevice(folder: folder, name: "Scan") }
                     }
                 }
+                Divider().padding(.vertical, 8)
+                Button("Back (keep scan for later)") { model.leaveCapture() }
+                Button("Discard scan", role: .destructive) { confirmDiscard = true }
+            }
+            .confirmationDialog("Discard this scan?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Discard scan", role: .destructive) { model.discardCapture() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The photos on this phone are deleted and cannot be recovered.")
             }
         case .reconstructing(let fraction):
             if let fraction {
