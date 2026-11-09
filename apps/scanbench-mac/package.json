@@ -1,0 +1,10 @@
+{
+  "name": "scanbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Swift desktop app for importing phone scans onto a print plate",
+  "scripts": {
+    "build": "sh ./build.sh",
+    "rebuild_check": "sh ./rebuild_check"
+  }
+}

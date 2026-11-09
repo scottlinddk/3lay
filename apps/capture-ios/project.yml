@@ -1,0 +1,40 @@
+# XcodeGen spec: `xcodegen generate` writes Scan3DCapture.xcodeproj (not committed).
+# Not generated or built in the authoring session, verify on a Mac before relying on it.
+name: Scan3DCapture
+options:
+  bundleIdPrefix: app.scan3d
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  CaptureIOS:
+    path: .
+targets:
+  Scan3DCapture:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: CaptureIOS
+        product: CaptureApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.scan3d.capture
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: App/Info.plist
+      properties:
+        NSCameraUsageDescription: The camera captures photos of the object you scan.
+        NSLocalNetworkUsageDescription: Finds your Mac on this Wi-Fi network and sends it your scans.
+        NSBonjourServices: [_scanbench._tcp]
+        # The Mac receiver speaks plain HTTP on the local network. This exempts local addresses
+        # only. Internet hosts still require TLS.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        CFBundleURLTypes:
+          - CFBundleURLName: app.scan3d.pairing
+            CFBundleURLSchemes: [scan3d]
+        UIRequiredDeviceCapabilities: [arm64]

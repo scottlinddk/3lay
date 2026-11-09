@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "values": [
+    {
+      "name": "LAN port",
+      "group": "phone import",
+      "value": 8765,
+      "unit": "TCP",
+      "estimated": true
+    },
+    {
+      "name": "upload limit",
+      "group": "phone import",
+      "value": 100,
+      "unit": "MB",
+      "estimated": true
+    },
+    {
+      "name": "plate width",
+      "group": "workspace",
+      "value": 256,
+      "unit": "mm",
+      "estimated": true
+    },
+    {
+      "name": "plate depth",
+      "group": "workspace",
+      "value": 256,
+      "unit": "mm",
+      "estimated": true
+    },
+    {
+      "name": "screenshot frame",
+      "group": "capture",
+      "value": 120,
+      "unit": "frames",
+      "source": "Craft Anything request"
+    },
+    {
+      "name": "accepted local mesh formats",
+      "group": "import",
+      "value": "STL, OBJ, ASCII PLY",
+      "estimated": true
+    },
+    {
+      "name": "companion pairing transport",
+      "group": "phone import",
+      "value": "HTTPS except localhost",
+      "source": "3D-scan apps/capture-ios/Sources/CaptureKit/PairingLink.swift"
+    }
+  ]
+}

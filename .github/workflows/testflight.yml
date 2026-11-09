@@ -1,0 +1,62 @@
+name: TestFlight
+
+# Manual: archive the app and upload it to TestFlight. Never runs on pull requests.
+# Not exercised in the authoring session. Needs the secrets and variable documented in
+# apps/capture-ios/README.md before the first run.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: macos-latest
+    environment: testflight   # add required reviewers to this environment
+    env:
+      TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Write the App Store Connect API key
+        env:
+          KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          echo "$KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+        working-directory: apps/capture-ios
+
+      - name: Archive
+        run: >
+          xcodebuild archive -project Scan3DCapture.xcodeproj -scheme Scan3DCapture
+          -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/app.xcarchive"
+          -allowProvisioningUpdates
+          -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
+          -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
+          DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+        working-directory: apps/capture-ios
+
+      - name: Export and upload to TestFlight
+        run: >
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/app.xcarchive"
+          -exportOptionsPlist ci/ExportOptions.plist -exportPath "$RUNNER_TEMP/export"
+          -allowProvisioningUpdates
+          -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
+          -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
+        working-directory: apps/capture-ios
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"
