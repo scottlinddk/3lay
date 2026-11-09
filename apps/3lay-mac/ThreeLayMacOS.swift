@@ -164,7 +164,7 @@ struct CloudItem: Identifiable {
     }
 }
 
-struct ScanbenchView: View {
+struct ThreeLayMacOSView: View {
     @StateObject private var state = ScanState()
     @State private var importing = false
     private let steps = [("01", "Bring in a scan", "Phone or file"), ("02", "Check size", "Confirm millimetres"), ("03", "Place on plate", "Rotate and inspect"), ("04", "Next steps", "Export and slice")]
@@ -355,6 +355,6 @@ struct PlateView: View {
     }
 }
 
-@main struct ScanbenchApp: App {
-    var body: some Scene { WindowGroup("3lay Mac") { ScanbenchView().frame(minWidth: 920, minHeight: 600).frame(width: 1280, height: 800) } }
+@main struct ThreeLayMacOSApp: App {
+    var body: some Scene { WindowGroup("3lay Mac") { ThreeLayMacOSView().frame(minWidth: 920, minHeight: 600).frame(width: 1280, height: 800) } }
 }

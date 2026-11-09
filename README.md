@@ -22,7 +22,7 @@ Needs macOS with Xcode.
 ```sh
 swift test --package-path packages/scan-link
 swift test --package-path apps/3lay-ios
-(cd apps/3lay-mac && ./rebuild_check)   # builds build/Scanbench.app and runs the loopback check
+(cd apps/3lay-mac && ./rebuild_check)   # builds build/ThreeLayMacOS.app and runs the loopback check
 ```
 
 3lay iOS additionally needs XcodeGen and a device with LiDAR, see `apps/3lay-ios/README.md`.
@@ -31,4 +31,4 @@ swift test --package-path apps/3lay-ios
 
 - The 3D-scan web app, API and pipeline. 3lay iOS's optional **server** mode still talks to that
   API (`scan3d://pair` links) but the server is not part of this repository.
-- Scanbench's committed `build/` output and `legacy-rust/` prototype.
+- The scanbench repository's committed `build/` output and `legacy-rust/` prototype.

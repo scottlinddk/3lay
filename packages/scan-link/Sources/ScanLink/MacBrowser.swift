@@ -22,7 +22,7 @@ private final class Once {
     }
 }
 
-/// Browses for `_scanbench._tcp` services. Callbacks arrive on the main queue.
+/// Browses for `_threelaymacos._tcp` services. Callbacks arrive on the main queue.
 ///
 /// iOS shows the Local Network permission prompt the first time this starts. If the user
 /// declined, the browser stays in `.waiting` and `onProblem` explains how to fix it.

@@ -51,7 +51,7 @@ final class ScanLinkCoreTests: XCTestCase {
     func testHelloRoundTripCarriesNoSecret() throws {
         let data = try JSONEncoder().encode(LanHello(name: "Studio"))
         let hello = try JSONDecoder().decode(LanHello.self, from: data)
-        XCTAssertEqual(hello.service, "scanbench")
+        XCTAssertEqual(hello.service, "threelaymacos")
         XCTAssertEqual(hello.extensions, LanProtocol.acceptedExtensions)
         XCTAssertFalse(String(decoding: data, as: UTF8.self).lowercased().contains("code"))
     }

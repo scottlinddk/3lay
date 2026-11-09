@@ -34,7 +34,8 @@ struct Mesh {
     func saveSTL(_ url: URL, scale: Float, angle: Float) throws {
         guard faces.count <= Int(UInt32.max) else { throw ScanError.message("Too many triangles for STL") }
         var out = Data(repeating: 0, count: 80)
-        out.replaceSubrange(0..<9, with: Data("Scanbench".utf8))
+        let tag = Data("3lay Mac".utf8)
+        out.replaceSubrange(0..<tag.count, with: tag)
         out.appendLE(UInt32(faces.count))
         let radians = angle * .pi / 180
         let c = cos(radians), s = sin(radians)

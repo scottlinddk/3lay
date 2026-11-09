@@ -20,7 +20,7 @@ import ScanLinkCore
     }
 
     static func main() async throws {
-        let inbox = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "scanbench-check-\(UUID().uuidString)")
+        let inbox = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "threelaymacos-check-\(UUID().uuidString)")
         let received = DispatchSemaphore(value: 0)
         let box = Box()
         let receiver = try PhoneReceiver(code: "123456", port: 0, inbox: inbox, name: "Check Mac") { url in

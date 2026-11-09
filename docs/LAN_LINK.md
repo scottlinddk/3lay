@@ -7,7 +7,7 @@ change them there and update this page in the same commit.
 ## Flow
 
 1. 3lay Mac starts an HTTP receiver (port 8765 if free) and publishes it on Bonjour as
-   `_scanbench._tcp`, named after the Mac (for example "Studio MacBook").
+   `_threelaymacos._tcp`, named after the Mac (for example "Studio MacBook").
 2. in 3lay iOS, **Find a Mac nearby** browses for that service (`NWBrowser`). The user picks
    the Mac and types the six-digit **pairing code** shown in 3lay Mac.
 3. The phone resolves the service to an IPv4 address, calls `GET /api/hello` to confirm it is
@@ -27,7 +27,7 @@ such as `192.168.1.20` or `studio.local`, shown in 3lay Mac under **Import a sca
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /` | none | Browser upload page (STL, OBJ, ASCII PLY, USDZ). |
-| `GET /api/hello` | none | `{service:"scanbench", version, name, maxBytes, extensions}`. Never contains the code. |
+| `GET /api/hello` | none | `{service:"threelaymacos", version, name, maxBytes, extensions}`. Never contains the code. |
 | `GET /api/auth` | code | 200 if the code is right. Used to validate a typed code. |
 | `PUT /upload/<url-encoded filename>` | code | Raw file bytes, `Content-Length` required, 100 MB max. 200 when saved. |
 

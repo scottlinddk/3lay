@@ -3,7 +3,7 @@ import Foundation
 import ScanLinkCore  // SwiftPM builds; build.sh compiles the same sources straight into this target.
 #endif
 
-/// Publishes the receiver on Bonjour as `_scanbench._tcp` so the iOS app can find this Mac
+/// Publishes the receiver on Bonjour as `_threelaymacos._tcp` so the iOS app can find this Mac
 /// without typing an address. Must be created and started on the main thread (NetService
 /// needs a run loop).
 final class LanAdvertiser: NSObject, NetServiceDelegate {

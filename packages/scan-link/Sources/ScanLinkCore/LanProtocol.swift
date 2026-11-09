@@ -1,14 +1,14 @@
 import Foundation
 
-/// Constants shared by the Mac receiver (Scanbench) and the iOS sender. Change them here only,
+/// Constants shared by the Mac receiver (ThreeLayMacOS) and the iOS sender. Change them here only,
 /// and update docs/LAN_LINK.md in the same commit.
 public enum LanProtocol {
     /// Bonjour service type the Mac advertises and the phone browses for.
-    public static let serviceType = "_scanbench._tcp"
-    /// Port Scanbench tries first. Clients must use the port from Bonjour, not assume this one.
+    public static let serviceType = "_threelaymacos._tcp"
+    /// Port ThreeLayMacOS tries first. Clients must use the port from Bonjour, not assume this one.
     public static let defaultPort: UInt16 = 8765
     public static let version = 1
-    public static let serviceName = "scanbench"
+    public static let serviceName = "threelaymacos"
 
     public static let helloPath = "/api/hello"
     public static let authPath = "/api/auth"
