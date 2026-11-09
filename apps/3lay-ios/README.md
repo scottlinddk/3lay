@@ -16,7 +16,7 @@ server and token in the Keychain. Plain `http` is accepted only for `localhost`.
 
 ## Nearby Mac (no server)
 
-**Find a Mac nearby** discovers 3lay Mac (`apps/scanbench-mac`) over Bonjour on the same Wi-Fi,
+**Find a Mac nearby** discovers 3lay Mac (`apps/3lay-mac`) over Bonjour on the same Wi-Fi,
 pairs with the six-digit code the Mac shows, then **Send to <Mac>** reconstructs on the phone and
 sends the USDZ straight to it. The shared contract is `packages/scan-link`, explained in
 `docs/LAN_LINK.md`. Plain HTTP, local network only. The server device token is not used here.
@@ -38,7 +38,7 @@ xcodebuild -scheme CaptureApp -destination 'generic/platform=iOS' CODE_SIGNING_A
 ```
 
 `ObjectCaptureSession` is not in the simulator SDK, so build for the device SDK. For an installable
-app: `brew install xcodegen && xcodegen generate`, open `Scan3DCapture.xcodeproj`, set your team.
+app: `brew install xcodegen && xcodegen generate`, open `ThreeLayIOS.xcodeproj`, set your team.
 
 ## Manual device checks (cannot be automated)
 
@@ -53,7 +53,7 @@ app: `brew install xcodegen && xcodegen generate`, open `Scan3DCapture.xcodeproj
 
 ## CI and TestFlight (#34)
 
-- `.github/workflows/ios.yml` (macOS runner, on changes under `apps/capture-ios` or the Mac CLI):
+- `.github/workflows/ios.yml` (macOS runner, on changes under `apps/3lay-ios` or the Mac CLI):
   `swift test` for CaptureKit, a device-SDK compile of `CaptureApp`, and test + release build of the
   Mac `scan3d-object-capture` CLI.
 - `.github/workflows/testflight.yml` is manual (`workflow_dispatch`, `testflight` environment).

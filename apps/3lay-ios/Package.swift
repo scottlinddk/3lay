@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "capture-ios",
+    name: "3lay-ios",
     platforms: [.iOS(.v17), .macOS(.v13)],
     products: [
         .library(name: "CaptureKit", targets: ["CaptureKit"]),
         .library(name: "CaptureApp", targets: ["CaptureApp"]),
     ],
     dependencies: [
-        // The LAN contract shared with the Mac app (apps/scanbench-mac).
+        // The LAN contract shared with the Mac app (apps/3lay-mac).
         .package(path: "../../packages/scan-link"),
     ],
     targets: [

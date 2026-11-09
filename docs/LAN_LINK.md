@@ -47,7 +47,7 @@ The code is sent as `Authorization: Bearer <code>` (iOS) or `?code=` (browser pa
 - This code is separate from the server device token. The token still only travels over HTTPS
   (`PairingLink.isAllowed` is unchanged).
 - iOS needs `NSLocalNetworkUsageDescription`, `NSBonjourServices` and
-  `NSAllowsLocalNetworking` (in `apps/capture-ios/project.yml`).
+  `NSAllowsLocalNetworking` (in `apps/3lay-ios/project.yml`).
 
 ## Troubleshooting
 
@@ -64,7 +64,7 @@ Automated (macOS CI, `.github/workflows/apps.yml`):
 
 - `swift test --package-path packages/scan-link`: address parsing, local-network rules, filename
   encoding, hello contract.
-- `apps/scanbench-mac/rebuild_check`: runs the real `LanClient` against the real `PhoneReceiver`
+- `apps/3lay-mac/rebuild_check`: runs the real `LanClient` against the real `PhoneReceiver`
   on loopback: hello, code check, OBJ and USDZ upload, wrong type, rotated code, lockout.
 
 Not covered by anything automated, check by hand on a real phone and Mac:

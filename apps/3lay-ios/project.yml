@@ -1,6 +1,6 @@
-# XcodeGen spec: `xcodegen generate` writes Scan3DCapture.xcodeproj (not committed).
+# XcodeGen spec: `xcodegen generate` writes ThreeLayIOS.xcodeproj (not committed).
 # Not generated or built in the authoring session, verify on a Mac before relying on it.
-name: Scan3DCapture
+name: ThreeLayIOS
 options:
   bundleIdPrefix: app.scan3d
   deploymentTarget:
@@ -9,7 +9,7 @@ packages:
   CaptureIOS:
     path: .
 targets:
-  Scan3DCapture:
+  ThreeLayIOS:
     type: application
     platform: iOS
     sources: [App]
