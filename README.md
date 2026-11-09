@@ -1,6 +1,6 @@
 # 3lay
 
-Scan an object with your phone, check it on your Mac, and get it onto a print plate.
+Turn real-world objects into your next 3D printing project. 3lay pairs guided iPhone scanning with a Mac companion app, letting you capture an object, send it over local Wi-Fi, inspect it on the big screen, and export an STL for your printing workflow. From something you can hold to something you can create with.
 
 | Path | What it is |
 | --- | --- |
