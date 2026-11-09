@@ -10,6 +10,7 @@ struct CaptureScreen: View {
     @State private var folder = CaptureScreen.newFolder()
     @State private var finished = false
     @State private var confirmEarlyFinish = false
+    @State private var failureMessage: String?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -31,6 +32,7 @@ struct CaptureScreen: View {
             // The object box still needs framing, but the first tap on "Detect" adds nothing.
             if state == .ready { _ = session.startDetecting() }
             if state == .completed { finished = true }
+            if case .failed(let error) = state { failureMessage = error.localizedDescription }
         }
         .confirmationDialog(
             "Only \(session.numberOfShotsTaken) photos. \(Submission.minimumPhotos) or more give a much better model.",
@@ -53,10 +55,12 @@ struct CaptureScreen: View {
                 if session.numberOfShotsTaken < Submission.minimumPhotos { confirmEarlyFinish = true }
                 else { session.finish() }
             }.buttonStyle(.borderedProminent)
+        case .failed:
+            EmptyView()
         default:
             ProgressView()
         }
-        Button("Cancel", role: .cancel) { session.cancel(); model.cancelCapture() }
+        Button(failureMessage == nil ? "Cancel" : "Back", role: .cancel) { session.cancel(); model.cancelCapture() }
     }
 
     /// One plain sentence for what the user should do now. ARKit reports what is wrong
@@ -74,11 +78,16 @@ struct CaptureScreen: View {
             }
             if feedback.contains(.outOfFieldOfView) { return "Keep the object in view." }
             return "Walk slowly around the object. Keep it in view."
+        case .failed:
+            // Without this a failed session sat on "Getting ready..." forever.
+            return "Scanning could not start: \(failureMessage ?? "unknown error")"
         default: return "Getting ready..."
         }
     }
 
     private func start() {
+        // onAppear can fire again; a second start() on a running session fails.
+        guard session.state == .initializing else { return }
         let images = folder.appendingPathComponent("Images")
         try? FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
         var config = ObjectCaptureSession.Configuration()
