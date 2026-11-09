@@ -68,10 +68,28 @@ struct CloudItem: Identifiable {
 
     /// A file that arrived from the phone. USDZ is converted to STL first, off the main thread.
     func receive(_ url: URL) {
+        if LanProtocol.isCaptureArchive(url.lastPathComponent) { reconstruct(archive: url); return }
         guard url.pathExtension.lowercased() == "usdz" else { importFile(url); return }
         status = "Converting \(url.lastPathComponent)…"
         Task {
             do { importFile(try await UsdzConverter.convert(url)) } catch { status = "Phone import failed: \(error.localizedDescription)" }
+        }
+    }
+
+    /// Photos from the phone. The Mac builds the model, which is faster and more detailed than
+    /// the phone doing it. Progress shows in the status line.
+    func reconstruct(archive: URL) {
+        status = "Unpacking photos…"
+        Task {
+            do {
+                let usdz = try await PhotoReconstruction.run(archive: archive) { [weak self] fraction in
+                    DispatchQueue.main.async { self?.status = "Building model from photos… \(Int(fraction * 100))%" }
+                }
+                status = "Converting model…"
+                let stl = try await UsdzConverter.convert(usdz)
+                try? FileManager.default.removeItem(at: archive)  // photos can be hundreds of MB
+                importFile(stl)
+            } catch { status = "Photo import failed: \(error.localizedDescription)" }
         }
     }
 

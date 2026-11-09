@@ -9,12 +9,17 @@ struct CaptureScreen: View {
     @State private var session = ObjectCaptureSession()
     @State private var folder = CaptureScreen.newFolder()
     @State private var finished = false
+    @State private var confirmEarlyFinish = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
             ObjectCaptureView(session: session)
             VStack(spacing: 12) {
-                Text("Photos: \(session.numberOfShotsTaken)").font(.headline)
+                Text(guidance).font(.subheadline).multilineTextAlignment(.center)
+                if session.state == .capturing {
+                    Text("Photos: \(session.numberOfShotsTaken) of \(Submission.minimumPhotos)+ recommended")
+                        .font(.headline)
+                }
                 controls
             }
             .padding()
@@ -23,7 +28,16 @@ struct CaptureScreen: View {
         }
         .onAppear(perform: start)
         .onChange(of: session.state) { _, state in
+            // The object box still needs framing, but the first tap on "Detect" adds nothing.
+            if state == .ready { _ = session.startDetecting() }
             if state == .completed { finished = true }
+        }
+        .confirmationDialog(
+            "Only \(session.numberOfShotsTaken) photos. \(Submission.minimumPhotos) or more give a much better model.",
+            isPresented: $confirmEarlyFinish, titleVisibility: .visible
+        ) {
+            Button("Finish anyway", role: .destructive) { session.finish() }
+            Button("Keep scanning", role: .cancel) {}
         }
         .onChange(of: finished) { _, done in
             if done { model.captureFinished(folder: folder) }
@@ -32,18 +46,36 @@ struct CaptureScreen: View {
 
     @ViewBuilder private var controls: some View {
         switch session.state {
-        case .ready:
-            Button("Detect object") { _ = session.startDetecting() }.buttonStyle(.borderedProminent)
         case .detecting:
             Button("Start capture") { session.startCapturing() }.buttonStyle(.borderedProminent)
         case .capturing:
-            Button("Finish") { session.finish() }
-                .buttonStyle(.borderedProminent)
-                .disabled(session.numberOfShotsTaken < Submission.minimumPhotos)
+            Button("Finish") {
+                if session.numberOfShotsTaken < Submission.minimumPhotos { confirmEarlyFinish = true }
+                else { session.finish() }
+            }.buttonStyle(.borderedProminent)
         default:
             ProgressView()
         }
         Button("Cancel", role: .cancel) { session.cancel(); model.cancelCapture() }
+    }
+
+    /// One plain sentence for what the user should do now. ARKit reports what is wrong
+    /// (too close, too fast, too dark) and we say it, instead of leaving them to guess.
+    private var guidance: String {
+        switch session.state {
+        case .detecting: return "Point at the object. Tap Start when the box surrounds it."
+        case .capturing:
+            let feedback = session.feedback
+            if feedback.contains(.movingTooFast) { return "Move slower." }
+            if feedback.contains(.objectTooClose) { return "Move back a little." }
+            if feedback.contains(.objectTooFar) { return "Move closer." }
+            if feedback.contains(.environmentLowLight) || feedback.contains(.environmentTooDark) {
+                return "Too dark. Add light."
+            }
+            if feedback.contains(.outOfFieldOfView) { return "Keep the object in view." }
+            return "Walk slowly around the object. Keep it in view."
+        default: return "Getting ready..."
+        }
     }
 
     private func start() {

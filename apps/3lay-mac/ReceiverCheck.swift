@@ -62,7 +62,14 @@ import ScanLinkCore
         guard received.wait(timeout: .now() + 10) == .success, let bigSaved = box.url,
               try Data(contentsOf: bigSaved) == payload else { fail("large upload corrupted") }
 
-        let junk = obj.deletingPathExtension().appendingPathExtension("zip")
+        // A zip of photos is a capture archive and is taken like any other upload.
+        let photos = obj.deletingPathExtension().appendingPathExtension("zip")
+        try Data([1, 2, 3]).write(to: photos)
+        try await client.upload(file: photos)
+        guard received.wait(timeout: .now() + 5) == .success, box.url?.pathExtension == "zip" else { fail("zip not accepted") }
+        guard try await client.hello().maxCaptureBytes == LanProtocol.maxCaptureBytes else { fail("hello hides capture support") }
+
+        let junk = obj.deletingPathExtension().appendingPathExtension("exe")
         try Data([1]).write(to: junk)
         await expect(.unsupportedType, { try await client.upload(file: junk) }, "unsupported type")
 
