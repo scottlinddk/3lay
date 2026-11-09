@@ -33,9 +33,11 @@ final class AppModel: ObservableObject {
     private var pairing: PairingLink?
 
     init() {
-        pairing = pairingStore.load()
-        pairedMac = macStore.load()
-        phase = (pairing == nil && pairedMac == nil) ? .needsPairing : .ready
+        let link = pairingStore.load()
+        let mac = macStore.load()
+        pairing = link
+        pairedMac = mac
+        phase = (link == nil && mac == nil) ? .needsPairing : .ready
     }
 
     /// Called for deep links and pasted text. Never pairs on its own: a crafted link must not be
