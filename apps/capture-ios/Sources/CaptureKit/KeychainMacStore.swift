@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// A Mac running Scanbench that this phone has paired with over the local network. The code is
+/// A Mac running 3lay Mac that this phone has paired with over the local network. The code is
 /// that Mac's pairing code. It is not the server device token and lives under its own Keychain item.
 public struct PairedMac: Codable, Equatable {
     public var name: String   // Bonjour name, used to find the Mac again if its IP address changes

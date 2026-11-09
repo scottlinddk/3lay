@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where a Scanbench receiver can be reached on the local network.
+/// Where a 3lay Mac receiver can be reached on the local network.
 public struct LanEndpoint: Codable, Equatable {
     public var name: String
     public var host: String

@@ -2,7 +2,7 @@
 import Foundation
 import Network
 
-/// A Scanbench receiver seen on the network through Bonjour. Not yet resolved to an address.
+/// A 3lay Mac receiver seen on the network through Bonjour. Not yet resolved to an address.
 public struct DiscoveredMac: Identifiable, Hashable {
     public var id: String { name }
     public let name: String

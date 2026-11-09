@@ -94,7 +94,7 @@ public struct RootView: View {
         case .sentToMac(let name):
             VStack(spacing: 8) {
                 Text("Sent to \(name)").font(.title2)
-                Text("It opens in Scanbench on your Mac.")
+                Text("It opens in 3lay Mac on your Mac.")
                 Button("Scan another") { model.cancelCapture() }
             }
         case .submitted(let jobId, let photos):

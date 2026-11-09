@@ -1,6 +1,6 @@
-# capture-ios
+# 3lay iOS
 
-Native iOS capture app (#25): guided Object Capture, then either send the raw photos to your Mac
+3lay iOS, the native capture app (#25): guided Object Capture, then either send the raw photos to your Mac
 for full-detail reconstruction (recommended) or reconstruct on the phone.
 
 - `Sources/CaptureKit`: pure logic, unit-tested with `swift test` on a Mac: `capture-bundle/1`
@@ -16,7 +16,7 @@ server and token in the Keychain. Plain `http` is accepted only for `localhost`.
 
 ## Nearby Mac (no server)
 
-**Find a Mac nearby** discovers Scanbench (`apps/scanbench-mac`) over Bonjour on the same Wi-Fi,
+**Find a Mac nearby** discovers 3lay Mac (`apps/scanbench-mac`) over Bonjour on the same Wi-Fi,
 pairs with the six-digit code the Mac shows, then **Send to <Mac>** reconstructs on the phone and
 sends the USDZ straight to it. The shared contract is `packages/scan-link`, explained in
 `docs/LAN_LINK.md`. Plain HTTP, local network only. The server device token is not used here.

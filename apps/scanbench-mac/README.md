@@ -1,10 +1,10 @@
-# Scanbench
+# 3lay Mac
 
 A Swift desktop prototype for bringing phone scans onto a print plate. It accepts STL, OBJ, and ASCII PLY surface meshes through drag-and-drop, a file chooser, or a local Wi-Fi upload page. It can also read the companion iOS app's HTTPS server using the same pairing link and download its reconstructed USDZ. It shows a mesh preview, source dimensions, an explicit scale control, simple rotation, and binary STL export.
 
 ## Run
 
-On macOS, run `./build.sh` from this directory, then open `build/Scanbench.app`. Run `./rebuild_check` to rebuild and check mesh import and export. The build uses the Swift compiler included with Xcode and needs no downloaded packages.
+On macOS, run `./build.sh` from this directory, then open `build/Scanbench.app` (shown as 3lay Mac). Run `./rebuild_check` to rebuild and check mesh import and export. The build uses the Swift compiler included with Xcode and needs no downloaded packages.
 
 ## Companion app import
 
@@ -12,7 +12,7 @@ Paste the `scan3d://pair` link from the companion web app into **Companion app**
 
 ## iOS app handoff (Nearby Mac)
 
-Scanbench advertises itself on Bonjour as `_scanbench._tcp`. In the iOS capture app choose **Find a Mac nearby**, pick this Mac and enter the six-digit code from **Import a scan**. **Send to <Mac>** then delivers a USDZ, which is converted to STL and opened. The code is kept between launches; **New code** revokes paired phones. See `../../docs/LAN_LINK.md` for the contract and security model. `./rebuild_check` runs a loopback test of this path.
+3lay Mac advertises itself on Bonjour as `_scanbench._tcp`. In 3lay iOS choose **Find a Mac nearby**, pick this Mac and enter the six-digit code from **Import a scan**. **Send to <Mac>** then delivers a USDZ, which is converted to STL and opened. The code is kept between launches; **New code** revokes paired phones. See `../../docs/LAN_LINK.md` for the contract and security model. `./rebuild_check` runs a loopback test of this path.
 
 ## Phone browser handoff
 

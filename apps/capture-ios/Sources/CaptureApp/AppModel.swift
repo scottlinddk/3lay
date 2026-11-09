@@ -77,7 +77,7 @@ final class AppModel: ObservableObject {
 
     // MARK: Nearby Mac (local network)
 
-    /// Called after the user entered a code. Checks that the address is a Scanbench receiver and
+    /// Called after the user entered a code. Checks that the address is a 3lay Mac receiver and
     /// that the code is right before anything is stored, so a typo is caught here and not
     /// halfway through an upload.
     func pairMac(endpoint: LanEndpoint, code: String) async throws {
@@ -107,14 +107,14 @@ final class AppModel: ObservableObject {
         if (try? await client.hello()) != nil { return client }
         guard let found = await MacBrowser.find(name: mac.name),
             let endpoint = try? await MacBrowser.resolve(found)
-        else { throw LanError.unreachable("\(mac.name) was not found on this Wi-Fi network. Is Scanbench open?") }
+        else { throw LanError.unreachable("\(mac.name) was not found on this Wi-Fi network. Is 3lay Mac open?") }
         let updated = PairedMac(name: mac.name, host: endpoint.host, port: endpoint.port, code: mac.code)
         try? macStore.save(updated)
         pairedMac = updated
         return LanClient(endpoint: endpoint, code: mac.code)
     }
 
-    /// Reconstructs on the phone, then sends the USDZ to the paired Mac. Scanbench converts it to STL.
+    /// Reconstructs on the phone, then sends the USDZ to the paired Mac. 3lay Mac converts it to STL.
     func sendToMac(folder: URL, name: String) async {
         guard let mac = pairedMac else { showNearbyMac = true; return }
         let model = folder.appendingPathComponent("model.usdz")

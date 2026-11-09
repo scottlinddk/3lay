@@ -3,7 +3,7 @@ import CaptureKit
 import ScanLink
 import SwiftUI
 
-/// Finds Scanbench on the local network and pairs with it using the code shown on the Mac.
+/// Finds 3lay Mac on the local network and pairs with it using the code shown on the Mac.
 @MainActor
 final class NearbyBrowserModel: ObservableObject {
     @Published var macs: [DiscoveredMac] = []
@@ -32,7 +32,7 @@ struct NearbyMacView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Macs running Scanbench") {
+                Section("Macs running 3lay Mac") {
                     if browser.macs.isEmpty {
                         HStack { ProgressView(); Text("Searching this Wi-Fi network...") }
                     }
@@ -56,7 +56,7 @@ struct NearbyMacView: View {
                         TextField("192.168.1.20 or my-mac.local", text: $manualAddress)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                             .keyboardType(.URL)
-                        Text("Shown in Scanbench under Import a scan. Local network addresses only.")
+                        Text("Shown in 3lay Mac under Import a scan. Local network addresses only.")
                             .font(.footnote)
                     }
                 }
