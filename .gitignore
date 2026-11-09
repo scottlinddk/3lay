@@ -12,9 +12,9 @@ xcuserdata/
 *.xcodeproj
 
 # Scanbench build output and received scans
-apps/scanbench-mac/build/
-apps/scanbench-mac/.cache/
-apps/scanbench-mac/inbox/
+apps/3lay-mac/build/
+apps/3lay-mac/.cache/
+apps/3lay-mac/inbox/
 
 # Secrets
 .env

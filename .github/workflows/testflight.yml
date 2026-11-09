@@ -2,7 +2,7 @@ name: TestFlight
 
 # Manual: archive the app and upload it to TestFlight. Never runs on pull requests.
 # Not exercised in the authoring session. Needs the secrets and variable documented in
-# apps/capture-ios/README.md before the first run.
+# apps/3lay-ios/README.md before the first run.
 on:
   workflow_dispatch:
 
@@ -36,17 +36,17 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate
-        working-directory: apps/capture-ios
+        working-directory: apps/3lay-ios
 
       - name: Archive
         run: >
-          xcodebuild archive -project Scan3DCapture.xcodeproj -scheme Scan3DCapture
+          xcodebuild archive -project ThreeLayIOS.xcodeproj -scheme ThreeLayIOS
           -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/app.xcarchive"
           -allowProvisioningUpdates
           -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
           -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
           DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="${{ github.run_number }}"
-        working-directory: apps/capture-ios
+        working-directory: apps/3lay-ios
 
       - name: Export and upload to TestFlight
         run: >
@@ -55,7 +55,7 @@ jobs:
           -allowProvisioningUpdates
           -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
           -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
-        working-directory: apps/capture-ios
+        working-directory: apps/3lay-ios
 
       - name: Remove the key
         if: always()

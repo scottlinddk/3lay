@@ -4,8 +4,8 @@ Turn real-world objects into your next 3D printing project. 3lay pairs guided iP
 
 | Path | What it is |
 | --- | --- |
-| `apps/capture-ios` | 3lay iOS: capture app (SwiftUI, Object Capture). From [3D-scan](https://github.com/scottlinddk/3D-scan). |
-| `apps/scanbench-mac` | 3lay Mac: receives scans, previews them and exports STL. From [scanbench](https://github.com/scottlinddk/scanbench). |
+| `apps/3lay-ios` | 3lay iOS: capture app (SwiftUI, Object Capture). From [3D-scan](https://github.com/scottlinddk/3D-scan). |
+| `apps/3lay-mac` | 3lay Mac: receives scans, previews them and exports STL. From [scanbench](https://github.com/scottlinddk/scanbench). |
 | `packages/scan-link` | The LAN contract both apps compile: Bonjour service type, routes, client, address rules. |
 | `docs/LAN_LINK.md` | How the two apps find and talk to each other, security model, manual checks. |
 
@@ -21,11 +21,11 @@ Needs macOS with Xcode.
 
 ```sh
 swift test --package-path packages/scan-link
-swift test --package-path apps/capture-ios
-(cd apps/scanbench-mac && ./rebuild_check)   # builds build/Scanbench.app and runs the loopback check
+swift test --package-path apps/3lay-ios
+(cd apps/3lay-mac && ./rebuild_check)   # builds build/Scanbench.app and runs the loopback check
 ```
 
-3lay iOS additionally needs XcodeGen and a device with LiDAR, see `apps/capture-ios/README.md`.
+3lay iOS additionally needs XcodeGen and a device with LiDAR, see `apps/3lay-ios/README.md`.
 
 ## Not included from the source repositories
 
