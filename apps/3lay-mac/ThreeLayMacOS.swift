@@ -82,8 +82,8 @@ struct CloudItem: Identifiable {
         status = "Unpacking photos…"
         Task {
             do {
-                let usdz = try await PhotoReconstruction.run(archive: archive) { [weak self] fraction in
-                    DispatchQueue.main.async { self?.status = "Building model from photos… \(Int(fraction * 100))%" }
+                let usdz = try await PhotoReconstruction.run(archive: archive) { fraction in
+                    DispatchQueue.main.async { self.status = "Building model from photos… \(Int(fraction * 100))%" }
                 }
                 status = "Converting model…"
                 let stl = try await UsdzConverter.convert(usdz)
