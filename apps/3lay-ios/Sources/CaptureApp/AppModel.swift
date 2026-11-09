@@ -164,6 +164,18 @@ final class AppModel: ObservableObject {
         else { phase = isPaired ? .ready : .needsPairing }
     }
 
+    /// Leaves the "Capture complete" screen but keeps the scan, so "Resume saved capture" can reopen it.
+    func leaveCapture() {
+        phase = isPaired ? .ready : .needsPairing
+    }
+
+    /// Deletes the unsent scan for good. Callers must have asked the user first.
+    func discardCapture() {
+        if let folder = pendingCapture { try? FileManager.default.removeItem(at: folder) }
+        clearPendingCapture()
+        phase = isPaired ? .ready : .needsPairing
+    }
+
     private func clearPendingCapture() {
         try? captureStore.clear()
         pendingCapture = nil
