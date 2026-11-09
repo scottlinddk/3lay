@@ -1,0 +1,52 @@
+name: Apps
+
+# Needs macOS runners: the iOS app, the Mac app and the shared LAN package are all Swift.
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "packages/scan-link/**"
+      - ".github/workflows/apps.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "packages/scan-link/**"
+
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan-link:
+    name: scan-link (swift test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: swift test --package-path packages/scan-link
+
+  capture-ios:
+    name: capture-ios (swift test, device build)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Unit tests (CaptureKit)
+        run: swift test --package-path apps/capture-ios
+      # ObjectCaptureSession is not in the simulator SDK, so compile against the device SDK.
+      - name: Compile CaptureApp for iOS
+        run: >
+          xcodebuild -scheme CaptureApp -destination 'generic/platform=iOS'
+          -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO build
+        working-directory: apps/capture-ios
+
+  scanbench-mac:
+    name: scanbench-mac (build, mesh check, LAN loopback check)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      # Builds the app, then runs the real LanClient against the real PhoneReceiver on loopback.
+      - run: ./rebuild_check
+        working-directory: apps/scanbench-mac

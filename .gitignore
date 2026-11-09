@@ -1,0 +1,23 @@
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcodeproj
+
+# Scanbench build output and received scans
+apps/scanbench-mac/build/
+apps/scanbench-mac/.cache/
+apps/scanbench-mac/inbox/
+
+# Secrets
+.env
+.env.*
+*.p8
+*.pem

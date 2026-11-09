@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")"
+sh build.sh
+export CLANG_MODULE_CACHE_PATH="$PWD/.cache"
+export SWIFT_MODULE_CACHE_PATH="$PWD/.cache"
+. ./sources.sh
+swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift MeshCheck.swift -o .build/MeshCheck
+.build/MeshCheck
+# Real iOS-side LanClient against the real PhoneReceiver on loopback.
+swiftc -disable-sandbox -swift-version 5 -parse-as-library $SHARED_SOURCES Mesh.swift PhoneReceiver.swift LanAdvertiser.swift ReceiverCheck.swift -o .build/ReceiverCheck
+.build/ReceiverCheck
+test -x .build/Scanbench
+test -x build/Scanbench.app/Contents/MacOS/Scanbench
+test -f build/Scanbench.app/Contents/Resources/convert_usdz.swift
+plutil -lint build/Scanbench.app/Contents/Info.plist
+codesign --verify --deep build/Scanbench.app
+echo "rebuild_check passed"
