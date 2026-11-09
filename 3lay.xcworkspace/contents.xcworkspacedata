@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "group:apps/3lay-ios/ThreeLayIOS.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:apps/3lay-mac/ThreeLayMacOS.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:packages/scan-link">
+   </FileRef>
+</Workspace>

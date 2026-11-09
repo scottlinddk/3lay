@@ -3,3 +3,5 @@
 build/
 inbox/
 .DS_Store
+*.xcodeproj
+Info.plist

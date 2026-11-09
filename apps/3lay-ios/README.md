@@ -38,7 +38,9 @@ xcodebuild -scheme CaptureApp -destination 'generic/platform=iOS' CODE_SIGNING_A
 ```
 
 `ObjectCaptureSession` is not in the simulator SDK, so build for the device SDK. For an installable
-app: `brew install xcodegen && xcodegen generate`, open `ThreeLayIOS.xcodeproj`, set your team.
+app run `../../scripts/open-xcode.sh` (installs XcodeGen, generates the project, opens the shared
+`3lay.xcworkspace`), then set your team in Xcode. Choose a device destination for the `ThreeLayIOS`
+scheme; it cannot build for the simulator, which otherwise looks like a failing build.
 
 ## Manual device checks (cannot be automated)
 

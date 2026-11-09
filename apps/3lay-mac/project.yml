@@ -1,0 +1,48 @@
+# XcodeGen spec: `xcodegen generate` writes ThreeLayMacOS.xcodeproj and Info.plist (neither committed).
+# `scripts/open-xcode.sh` runs it and opens the shared workspace. `build.sh` stays the CI/release
+# build: keep the Info.plist keys below in sync with the plist it writes.
+# Not generated or built in the authoring session, verify on a Mac before relying on it.
+name: ThreeLayMacOS
+options:
+  bundleIdPrefix: com.craftanything
+  deploymentTarget:
+    macOS: "13.0"
+packages:
+  ScanLink:
+    path: ../../packages/scan-link
+targets:
+  ThreeLayMacOS:
+    type: application
+    platform: macOS
+    sources:
+      - Mesh.swift
+      - UsdzConverter.swift
+      - PhotoReconstruction.swift
+      - LanAdvertiser.swift
+      - PhoneReceiver.swift
+      - ThreeLayMacOS.swift
+      # Run by UsdzConverter through /usr/bin/swift, so copy it, never compile it (top-level code).
+      - path: convert_usdz.swift
+        buildPhase: resources
+    dependencies:
+      - package: ScanLink
+        product: ScanLinkCore
+    settings:
+      base:
+        SWIFT_VERSION: "5"
+        PRODUCT_BUNDLE_IDENTIFIER: com.craftanything.threelaymacos
+        PRODUCT_NAME: ThreeLayMacOS
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_IDENTITY: "-"
+        # No App Sandbox: the app spawns /usr/bin/swift and listens on a socket.
+        ENABLE_APP_SANDBOX: NO
+    info:
+      path: Info.plist
+      properties:
+        CFBundleName: 3lay Mac
+        CFBundleDisplayName: 3lay Mac
+        LSMinimumSystemVersion: "13.0"
+        NSHighResolutionCapable: true
+        NSLocalNetworkUsageDescription: 3lay Mac receives scans from your phone over your local network.
+        NSBonjourServices: [_threelaymacos._tcp]

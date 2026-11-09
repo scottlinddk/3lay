@@ -6,6 +6,8 @@ on:
     paths:
       - "apps/**"
       - "packages/scan-link/**"
+      - "scripts/**"
+      - "3lay.xcworkspace/**"
       - ".github/workflows/apps.yml"
   push:
     branches: [main]
@@ -62,3 +64,11 @@ jobs:
       # Builds the app, then runs the real LanClient against the real PhoneReceiver on loopback.
       - run: ./rebuild_check
         working-directory: apps/3lay-mac
+      # Checks project.yml and the shared workspace that scripts/open-xcode.sh opens.
+      - name: Generate projects and resolve packages
+        run: ./scripts/open-xcode.sh --no-open
+      - name: Build ThreeLayMacOS through the workspace
+        run: >
+          xcodebuild -workspace 3lay.xcworkspace -scheme ThreeLayMacOS
+          -destination 'platform=macOS' -derivedDataPath "$RUNNER_TEMP/dd-mac"
+          CODE_SIGNING_ALLOWED=NO build
