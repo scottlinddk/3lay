@@ -18,7 +18,7 @@ let package = Package(
             dependencies: [.product(name: "ScanLinkCore", package: "scan-link")],
             path: ".",
             exclude: [
-                ".build", ".cache", "build", "shots",
+                "shots",
                 "MeshCheck.swift", "ReceiverCheck.swift", "convert_usdz.swift", "MECHANICS.md",
                 "README.md", "build.sh", "sources.sh", "mechanics.json", "rebuild_check", "package.json"
             ],
