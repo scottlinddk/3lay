@@ -16,7 +16,7 @@ public enum LanError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notLocalNetwork: return "That address is not on your local network."
-        case .notScanbench: return "That device is not running Scanbench."
+        case .notScanbench: return "That device is not running 3lay Mac."
         case .wrongCode: return "The pairing code does not match the one shown on the Mac."
         case .lockedOut: return "Too many wrong codes. Wait a minute and try again."
         case .unsupportedType: return "The Mac only accepts STL, OBJ, PLY or USDZ files."
@@ -27,7 +27,7 @@ public enum LanError: Error, Equatable, LocalizedError {
     }
 }
 
-/// Talks to a Scanbench receiver over plain HTTP on the local network. The pairing code is a
+/// Talks to a 3lay Mac receiver over plain HTTP on the local network. The pairing code is a
 /// short-lived shared secret for this one receiver. It is not the server device token and is
 /// never sent anywhere else.
 public struct LanClient {
@@ -86,7 +86,7 @@ public struct LanClient {
         }
     }
 
-    /// Public handshake. Proves the address is a Scanbench receiver before any code is sent.
+    /// Public handshake. Proves the address is a 3lay Mac receiver before any code is sent.
     public func hello() async throws -> LanHello {
         var request = URLRequest(url: try url(LanProtocol.helloPath))
         request.timeoutInterval = 5

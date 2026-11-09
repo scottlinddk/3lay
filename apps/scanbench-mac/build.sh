@@ -18,13 +18,14 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>Scanbench</string>
   <key>CFBundleIdentifier</key><string>com.craftanything.scanbench</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>Scanbench</string>
+  <key>CFBundleName</key><string>3lay Mac</string>
+  <key>CFBundleDisplayName</key><string>3lay Mac</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSLocalNetworkUsageDescription</key><string>Scanbench receives scans from your phone over your local network.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>3lay Mac receives scans from your phone over your local network.</string>
   <key>NSBonjourServices</key><array><string>_scanbench._tcp</string></array>
 </dict></plist>
 PLIST

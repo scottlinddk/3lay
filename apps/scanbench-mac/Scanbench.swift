@@ -173,7 +173,7 @@ struct ScanbenchView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("◈").font(.title).foregroundStyle(accent)
-                Text("SCANBENCH").font(.headline).tracking(1)
+                Text("3LAY MAC").font(.headline).tracking(1)
                 Text("Prepare your scan for printing").foregroundStyle(.secondary).padding(.leading, 15)
                 Spacer()
                 Text("LOCAL WORKSPACE").font(.caption).foregroundStyle(.secondary)
@@ -236,7 +236,7 @@ struct ScanbenchView: View {
             Text("Import a scan").font(.title2.bold())
             Text("Send from your phone on the same Wi-Fi network, or choose a file.").foregroundStyle(.secondary)
             section("ON YOUR PHONE")
-            Text("Open the Scan3D Capture app, choose Nearby Mac, pick this Mac and enter the code. Then scan an object and send it here.").font(.caption).foregroundStyle(.secondary)
+            Text("Open the 3lay iOS app, choose Nearby Mac, pick this Mac and enter the code. Then scan an object and send it here.").font(.caption).foregroundStyle(.secondary)
             Text("Pairing code  \(state.code)").font(.headline).foregroundStyle(accent)
             Button("New code") { state.rotateCode() }
             Text("A new code disconnects phones that used the old one.").font(.caption).foregroundStyle(.secondary)
@@ -356,5 +356,5 @@ struct PlateView: View {
 }
 
 @main struct ScanbenchApp: App {
-    var body: some Scene { WindowGroup("Scanbench") { ScanbenchView().frame(minWidth: 920, minHeight: 600).frame(width: 1280, height: 800) } }
+    var body: some Scene { WindowGroup("3lay Mac") { ScanbenchView().frame(minWidth: 920, minHeight: 600).frame(width: 1280, height: 800) } }
 }

@@ -25,8 +25,9 @@ targets:
     info:
       path: App/Info.plist
       properties:
+        CFBundleDisplayName: 3lay iOS
         NSCameraUsageDescription: The camera captures photos of the object you scan.
-        NSLocalNetworkUsageDescription: Finds your Mac on this Wi-Fi network and sends it your scans.
+        NSLocalNetworkUsageDescription: Finds your 3lay Mac on this Wi-Fi network and sends it your scans.
         NSBonjourServices: [_scanbench._tcp]
         # The Mac receiver speaks plain HTTP on the local network. This exempts local addresses
         # only. Internet hosts still require TLS.
