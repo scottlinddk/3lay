@@ -36,13 +36,9 @@ enum PhotoReconstruction {
 
     /// `PhotogrammetrySession.Error` prints as a bare case name ("processError"); say what to try.
     private static func describe(_ error: Error) -> String {
-        let hint: String
-        switch error as? PhotogrammetrySession.Error {
-        case .processError?:
-            hint = "Object Capture could not build a model from these photos. Usually there are too few photos, too little overlap between neighbours, blur, or too little free memory. Take 30+ sharp photos with about 70% overlap and try again."
-        default: hint = "\(error)"
-        }
-        return hint
+        let name = "\(error)"
+        guard name == "processError" else { return name }
+        return "Object Capture could not build a model from these photos. Usually there are too few photos, too little overlap between neighbours, blur, or too little free memory. Take 30+ sharp photos with about 70% overlap and try again."
     }
 
     /// `ditto` ships with macOS and unpacks the zip a phone produces.
