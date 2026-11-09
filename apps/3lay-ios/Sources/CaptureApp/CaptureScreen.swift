@@ -30,7 +30,7 @@ struct CaptureScreen: View {
         .onAppear(perform: start)
         .onChange(of: session.state) { _, state in
             // The object box still needs framing, but the first tap on "Detect" adds nothing.
-            if state == .ready { _ = session.startDetecting() }
+            if state == .ready { Task { await beginDetecting() } }
             if state == .completed { finished = true }
             if case .failed(let error) = state { failureMessage = error.localizedDescription }
         }
@@ -55,6 +55,9 @@ struct CaptureScreen: View {
                 if session.numberOfShotsTaken < Submission.minimumPhotos { confirmEarlyFinish = true }
                 else { session.finish() }
             }.buttonStyle(.borderedProminent)
+        case .ready:
+            // Manual fallback if the automatic attempt below never succeeds.
+            Button("Continue") { _ = session.startDetecting() }.buttonStyle(.borderedProminent)
         case .failed:
             EmptyView()
         default:
@@ -82,6 +85,17 @@ struct CaptureScreen: View {
             // Without this a failed session sat on "Getting ready..." forever.
             return "Scanning could not start: \(failureMessage ?? "unknown error")"
         default: return "Getting ready..."
+        }
+    }
+
+    /// `state` turns `.ready` slightly before the session accepts `startDetecting()` (the log says
+    /// "called in wrong state=running"). A single call is silently rejected and the screen stays on
+    /// "Getting ready..." forever, so retry briefly until it is accepted.
+    private func beginDetecting() async {
+        for _ in 0..<20 {
+            guard session.state == .ready else { return }
+            if session.startDetecting() { return }
+            try? await Task.sleep(for: .milliseconds(250))
         }
     }
 
