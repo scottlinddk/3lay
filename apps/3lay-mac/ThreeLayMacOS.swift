@@ -72,7 +72,7 @@ struct CloudItem: Identifiable {
         guard url.pathExtension.lowercased() == "usdz" else { importFile(url); return }
         status = "Converting \(url.lastPathComponent)…"
         Task {
-            do { importFile(try await UsdzConverter.convert(url)) } catch { status = "Phone import failed: \(error.localizedDescription)" }
+            do { importFile(try await UsdzConverter.convert(url), unitScale: Mesh.metresToMillimetres) } catch { status = "Phone import failed: \(error.localizedDescription)" }
         }
     }
 
@@ -88,21 +88,25 @@ struct CloudItem: Identifiable {
                 status = "Converting model…"
                 let stl = try await UsdzConverter.convert(usdz)
                 try? FileManager.default.removeItem(at: archive)  // photos can be hundreds of MB
-                importFile(stl)
+                importFile(stl, unitScale: Mesh.metresToMillimetres)
             } catch { status = "Photo import failed: \(error.localizedDescription)" }
         }
     }
 
-    func importFile(_ url: URL) {
+    /// `unitScale` is 1000 for a USDZ conversion (metres to millimetres). Without it a 20 cm scan
+    /// became a 0.2 mm speck on the 256 mm plate and looked like nothing had loaded.
+    func importFile(_ url: URL, unitScale: Float = 1) {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
-            let imported = try Mesh.load(url)
+            let imported = try Mesh.load(url, unitScale: unitScale)
             mesh = imported
             selection = 1
             scale = 1
             path = url.path
+            let size = Swift.max(imported.bounds.x, imported.bounds.y, imported.bounds.z)
             status = "Imported \(imported.name) · \(imported.faces.count) triangles"
+            if size < 2 { status += " · only \(String(format: "%.2f", Double(size))) units across, probably metres: raise the scale factor" }
         } catch { status = "Import failed: \(error.localizedDescription)" }
     }
 
@@ -175,8 +179,12 @@ struct CloudItem: Identifiable {
                 let filename = URL(fileURLWithPath: item.filename).lastPathComponent
                 var file = dir.appending(path: "\(item.id)-\(filename)")
                 try data.write(to: file, options: .atomic)
-                if file.pathExtension.lowercased() == "usdz" { file = try await UsdzConverter.convert(file) }
-                importFile(file)
+                var unitScale: Float = 1
+                if file.pathExtension.lowercased() == "usdz" {
+                    file = try await UsdzConverter.convert(file)
+                    unitScale = Mesh.metresToMillimetres
+                }
+                importFile(file, unitScale: unitScale)
             } catch { status = "Phone import failed: \(error.localizedDescription)" }
         }
     }
@@ -346,7 +354,7 @@ struct PlateView: View {
                         let x = v.x * Float(scale) * fit, y = v.y * Float(scale) * fit
                         return SIMD3(x * c - y * s, x * s + y * c, v.z * Float(scale) * fit)
                     }
-                    let step = max(1, mesh.faces.count / 6000)
+                    let step = max(1, mesh.faces.count / 25000)
                     let triangles = Swift.stride(from: 0, to: mesh.faces.count, by: step).compactMap { i -> (Float, [CGPoint])? in
                         let f = mesh.faces[i]
                         guard f.x >= 0, f.y >= 0, f.z >= 0, f.x < transformed.count, f.y < transformed.count, f.z < transformed.count else { return nil }

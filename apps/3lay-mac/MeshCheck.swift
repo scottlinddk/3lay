@@ -17,6 +17,11 @@ import Foundation
         let ply = directory.appending(path: "triangle.ply")
         try "ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n0 0 0\n1 0 0\n0 1 0\n3 0 1 2\n".write(to: ply, atomically: true, encoding: .utf8)
         guard try Mesh.load(ply).faces.count == 1 else { throw ScanError.message("PLY import check failed") }
+        // A USDZ model is in metres: 0.2 m must come in as 200 mm.
+        let metres = directory.appending(path: "metres.obj")
+        try "v 0 0 0\nv 0.2 0 0\nv 0 0.1 0\nf 1 2 3\n".write(to: metres, atomically: true, encoding: .utf8)
+        let scaled = try Mesh.load(metres, unitScale: Mesh.metresToMillimetres)
+        guard abs(scaled.bounds.x - 200) < 0.01, abs(scaled.bounds.y - 100) < 0.01 else { throw ScanError.message("Metres to millimetres check failed") }
         print("Mesh import and STL export passed")
     }
 }

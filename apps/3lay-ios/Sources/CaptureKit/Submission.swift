@@ -9,7 +9,7 @@ public struct SubmissionResult: Equatable {
 /// Turns a finished capture folder into a job: uploads photos and manifest, then queues the
 /// Mac reconstruction. Re-running after a failure resumes uploads rather than duplicating them.
 public struct Submission {
-    public static let minimumPhotos = 20
+    public static let minimumPhotos = 50
 
     let api: APIClient
     let uploader: ResumableUploader

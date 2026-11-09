@@ -6,9 +6,15 @@ struct Mesh {
     var name: String
     var bounds: SIMD3<Float>
 
-    static func load(_ url: URL) throws -> Mesh {
+    /// Largest file `load` accepts. A full-detail photo scan is a few million triangles (50 bytes each in STL).
+    static let maxFileBytes = 500_000_000
+    /// USDZ (Object Capture) is in metres; the plate and STL are millimetres.
+    static let metresToMillimetres: Float = 1000
+
+    /// `unitScale` multiplies every coordinate, so a model in metres can come in as millimetres.
+    static func load(_ url: URL, unitScale: Float = 1) throws -> Mesh {
         let data = try Data(contentsOf: url)
-        guard data.count <= 100_000_000 else { throw ScanError.message("File exceeds the 100 MB import limit") }
+        guard data.count <= maxFileBytes else { throw ScanError.message("File exceeds the 500 MB import limit") }
         var mesh: Mesh
         switch url.pathExtension.lowercased() {
         case "stl": mesh = try parseSTL(data)
@@ -18,6 +24,7 @@ struct Mesh {
         }
         guard !mesh.vertices.isEmpty && !mesh.faces.isEmpty else { throw ScanError.message("No surface triangles found in this file") }
         guard mesh.vertices.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }) else { throw ScanError.message("Mesh contains invalid coordinates") }
+        if unitScale != 1 { mesh.vertices = mesh.vertices.map { $0 * unitScale } }
         var lo = SIMD3<Float>(repeating: .infinity)
         var hi = SIMD3<Float>(repeating: -.infinity)
         for v in mesh.vertices {
@@ -59,7 +66,7 @@ struct Mesh {
         var mesh = empty()
         if data.count >= 84 {
             let count = Int(data.readLE(UInt32.self, at: 80))
-            if count <= 2_000_000 && data.count == 84 + count * 50 {
+            if count <= 10_000_000 && data.count == 84 + count * 50 {
                 mesh.vertices.reserveCapacity(count * 3)
                 mesh.faces.reserveCapacity(count)
                 for t in 0..<count {
@@ -128,7 +135,7 @@ struct Mesh {
             if line == "end_header" { headerEnd = index + 1; break }
         }
         guard ascii, let start = headerEnd else { throw ScanError.message("Export the PLY as ASCII with surface faces") }
-        guard (0...5_000_000).contains(vertexCount), (0...5_000_000).contains(faceCount) else { throw ScanError.message("PLY is too large") }
+        guard (0...10_000_000).contains(vertexCount), (0...10_000_000).contains(faceCount) else { throw ScanError.message("PLY is too large") }
         guard lines.count >= start + vertexCount + faceCount else { throw ScanError.message("PLY ended before all geometry") }
         var mesh = empty()
         for index in start..<(start + vertexCount) {

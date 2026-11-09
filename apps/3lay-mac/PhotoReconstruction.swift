@@ -18,14 +18,30 @@ enum PhotoReconstruction {
         let output = archive.deletingPathExtension().appendingPathExtension("usdz")
         try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
+        // Most detail first. `.full` needs a lot of memory, so a failure drops one level and tries again.
+        let levels: [PhotogrammetrySession.Request.Detail] = [.full, .medium]
+        for (index, detail) in levels.enumerated() {
+            do {
+                try await build(photos: photos, output: output, detail: detail, progress: progress)
+                return output
+            } catch is ScanError where index < levels.count - 1 {
+                try? FileManager.default.removeItem(at: output)
+                continue
+            }
+        }
+        throw ScanError.message("Model building ended without a result.")
+    }
+
+    private static func build(photos: URL, output: URL, detail: PhotogrammetrySession.Request.Detail,
+                              progress: @escaping (Double) -> Void) async throws {
         var configuration = PhotogrammetrySession.Configuration()
-        configuration.featureSensitivity = .normal
+        configuration.featureSensitivity = .high  // picks up fine texture like printed text and page edges
         let session = try PhotogrammetrySession(input: photos, configuration: configuration)
-        try session.process(requests: [.modelFile(url: output, detail: .medium)])
+        try session.process(requests: [.modelFile(url: output, detail: detail)])
         for try await result in session.outputs {
             switch result {
             case .requestProgress(_, let fraction): progress(fraction)
-            case .requestComplete: return output
+            case .requestComplete: return
             case .requestError(_, let error): throw ScanError.message(describe(error))
             case .processingCancelled: throw ScanError.message("Model building was cancelled.")
             default: continue
@@ -38,7 +54,7 @@ enum PhotoReconstruction {
     private static func describe(_ error: Error) -> String {
         let name = "\(error)"
         guard name == "processError" else { return name }
-        return "Object Capture could not build a model from these photos. Usually there are too few photos, too little overlap between neighbours, blur, or too little free memory. Take 30+ sharp photos with about 70% overlap and try again."
+        return "Object Capture could not build a model from these photos. Usually there are too few photos, too little overlap between neighbours, blur, or too little free memory. Take 50+ sharp photos with about 70% overlap and try again."
     }
 
     /// `ditto` ships with macOS and unpacks the zip a phone produces.
