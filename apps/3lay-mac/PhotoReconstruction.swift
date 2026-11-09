@@ -11,11 +11,12 @@ enum PhotoReconstruction {
         guard PhotogrammetrySession.isSupported else {
             throw ScanError.message("This Mac cannot build models from photos. Build on the phone instead.")
         }
-        let work = archive.deletingLastPathComponent().appending(path: ".unpack-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let work = archive.deletingLastPathComponent().appending(path: "unpack-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: work) }
         try await unzip(archive, to: work)
         let photos = try photoFolder(in: work)
         let output = archive.deletingPathExtension().appendingPathExtension("usdz")
+        try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
         var configuration = PhotogrammetrySession.Configuration()
         configuration.featureSensitivity = .normal
@@ -25,12 +26,19 @@ enum PhotoReconstruction {
             switch result {
             case .requestProgress(_, let fraction): progress(fraction)
             case .requestComplete: return output
-            case .requestError(_, let error): throw ScanError.message("\(error)")
+            case .requestError(_, let error): throw ScanError.message(describe(error))
             case .processingCancelled: throw ScanError.message("Model building was cancelled.")
             default: continue
             }
         }
         throw ScanError.message("Model building ended without a result.")
+    }
+
+    /// `PhotogrammetrySession.Error` prints as a bare case name ("processError"); say what to try.
+    private static func describe(_ error: Error) -> String {
+        let name = "\(error)"
+        guard name == "processError" else { return name }
+        return "Object Capture could not build a model from these photos. Usually there are too few photos, too little overlap between neighbours, blur, or too little free memory. Take 30+ sharp photos with about 70% overlap and try again."
     }
 
     /// `ditto` ships with macOS and unpacks the zip a phone produces.
