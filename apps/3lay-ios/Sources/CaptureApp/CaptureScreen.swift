@@ -51,6 +51,12 @@ struct CaptureScreen: View {
         case .detecting:
             Button("Start capture") { session.startCapturing() }.buttonStyle(.borderedProminent)
         case .capturing:
+            if session.userCompletedScanPass {
+                // One lap is rarely enough for detail. Another lap from a new height, or with the
+                // object flipped, fills in the sides and underside.
+                Button("Another lap, higher or lower") { session.beginNewScanPass() }.buttonStyle(.bordered)
+                Button("Flip the object and scan again") { session.beginNewScanPassAfterFlip() }.buttonStyle(.bordered)
+            }
             Button("Finish") {
                 if session.numberOfShotsTaken < Submission.minimumPhotos { confirmEarlyFinish = true }
                 else { session.finish() }
@@ -80,6 +86,7 @@ struct CaptureScreen: View {
                 return "Too dark. Add light."
             }
             if feedback.contains(.outOfFieldOfView) { return "Keep the object in view." }
+            if session.userCompletedScanPass { return "Lap done. Scan another lap at a different height for more detail, or finish." }
             return "Walk slowly around the object. Keep it in view."
         case .failed:
             // Without this a failed session sat on "Getting ready..." forever.
@@ -105,6 +112,9 @@ struct CaptureScreen: View {
         let images = folder.appendingPathComponent("Images")
         try? FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
         var config = ObjectCaptureSession.Configuration()
+        // Keeps extra photos beyond what the phone's live guidance asks for. The Mac uses them all,
+        // which is what makes a sharper model than a single lap around the object.
+        config.isOverCaptureEnabled = true
         config.checkpointDirectory = folder.appendingPathComponent("Checkpoint")
         session.start(imagesDirectory: images, configuration: config)
     }
