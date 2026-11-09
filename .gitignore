@@ -11,7 +11,7 @@ xcuserdata/
 *.xcuserstate
 *.xcodeproj
 
-# Scanbench build output and received scans
+# ThreeLayMacOS build output and received scans
 apps/3lay-mac/build/
 apps/3lay-mac/.cache/
 apps/3lay-mac/inbox/

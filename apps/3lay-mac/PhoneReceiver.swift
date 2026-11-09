@@ -26,7 +26,7 @@ final class PhoneReceiver {
     /// Where received scans are saved. Not the working directory: a Finder-launched app starts in `/`.
     static var defaultInbox: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Scanbench/inbox", directoryHint: .isDirectory)
+            .appending(path: "ThreeLayMacOS/inbox", directoryHint: .isDirectory)
     }
 
     init(code: String, port requested: UInt16 = LanProtocol.defaultPort, inbox: URL = PhoneReceiver.defaultInbox,

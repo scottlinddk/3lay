@@ -10,9 +10,9 @@ swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift MeshCheck.
 # Real iOS-side LanClient against the real PhoneReceiver on loopback.
 swiftc -disable-sandbox -swift-version 5 -parse-as-library $SHARED_SOURCES Mesh.swift PhoneReceiver.swift LanAdvertiser.swift ReceiverCheck.swift -o .build/ReceiverCheck
 .build/ReceiverCheck
-test -x .build/Scanbench
-test -x build/Scanbench.app/Contents/MacOS/Scanbench
-test -f build/Scanbench.app/Contents/Resources/convert_usdz.swift
-plutil -lint build/Scanbench.app/Contents/Info.plist
-codesign --verify --deep build/Scanbench.app
+test -x .build/ThreeLayMacOS
+test -x build/ThreeLayMacOS.app/Contents/MacOS/ThreeLayMacOS
+test -f build/ThreeLayMacOS.app/Contents/Resources/convert_usdz.swift
+plutil -lint build/ThreeLayMacOS.app/Contents/Info.plist
+codesign --verify --deep build/ThreeLayMacOS.app
 echo "rebuild_check passed"

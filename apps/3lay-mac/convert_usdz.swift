@@ -39,22 +39,22 @@ func convertUSDText() throws {
           let pointsText = parseArray("point3f[] points", in: text) ?? parseArray("point3d[] points", in: text),
           let countsText = parseArray("int[] faceVertexCounts", in: text),
           let indicesText = parseArray("int[] faceVertexIndices", in: text)
-    else { throw NSError(domain: "Scanbench", code: 1, userInfo: [NSLocalizedDescriptionKey: "USDZ has no supported surface mesh"]) }
+    else { throw NSError(domain: "ThreeLayMacOS", code: 1, userInfo: [NSLocalizedDescriptionKey: "USDZ has no supported surface mesh"]) }
     let coordinates = numbers(pointsText).map(Float.init)
     let counts = numbers(countsText).map(Int.init)
     let indices = numbers(indicesText).map(Int.init)
     guard coordinates.count.isMultiple(of: 3), coordinates.count >= 9,
-          counts.reduce(0,+) <= indices.count else { throw NSError(domain: "Scanbench", code: 2, userInfo: [NSLocalizedDescriptionKey: "USDZ mesh arrays are incomplete"]) }
+          counts.reduce(0,+) <= indices.count else { throw NSError(domain: "ThreeLayMacOS", code: 2, userInfo: [NSLocalizedDescriptionKey: "USDZ mesh arrays are incomplete"]) }
     var triangles: [[Int]] = []
     var cursor = 0
     for count in counts {
-        guard count >= 0, cursor + count <= indices.count else { throw NSError(domain: "Scanbench", code: 3) }
+        guard count >= 0, cursor + count <= indices.count else { throw NSError(domain: "ThreeLayMacOS", code: 3) }
         if count >= 3 {
             for i in 1..<(count-1) { triangles.append([indices[cursor], indices[cursor+i], indices[cursor+i+1]]) }
         }
         cursor += count
     }
-    guard triangles.count <= Int(UInt32.max) else { throw NSError(domain: "Scanbench", code: 4) }
+    guard triangles.count <= Int(UInt32.max) else { throw NSError(domain: "ThreeLayMacOS", code: 4) }
     var bytes = Data(repeating: 0, count: 80)
     func appendUInt32(_ value: UInt32) { var little = value.littleEndian; withUnsafeBytes(of: &little) { bytes.append(contentsOf: $0) } }
     func appendFloat(_ value: Float) { appendUInt32(value.bitPattern) }
@@ -62,7 +62,7 @@ func convertUSDText() throws {
     for triangle in triangles {
         bytes.append(Data(repeating: 0, count: 12))
         for index in triangle {
-            guard index >= 0, index * 3 + 2 < coordinates.count else { throw NSError(domain: "Scanbench", code: 5) }
+            guard index >= 0, index * 3 + 2 < coordinates.count else { throw NSError(domain: "ThreeLayMacOS", code: 5) }
             appendFloat(coordinates[index*3]); appendFloat(coordinates[index*3+1]); appendFloat(coordinates[index*3+2])
         }
         bytes.append(contentsOf: [0,0])

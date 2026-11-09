@@ -1,8 +1,8 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// The LAN contract between the iOS capture app and the Mac Scanbench app.
-// ScanLinkCore is Foundation-only so Scanbench can compile it with plain swiftc (see
+// The LAN contract between the iOS capture app and the Mac ThreeLayMacOS app.
+// ScanLinkCore is Foundation-only so ThreeLayMacOS can compile it with plain swiftc (see
 // apps/3lay-mac/build.sh). ScanLink adds Bonjour discovery for iOS.
 let package = Package(
     name: "scan-link",

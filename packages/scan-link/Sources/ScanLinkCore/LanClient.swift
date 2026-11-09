@@ -5,7 +5,7 @@ import FoundationNetworking  // URLSession on Linux, used for CI outside macOS
 
 public enum LanError: Error, Equatable, LocalizedError {
     case notLocalNetwork
-    case notScanbench
+    case notThreeLayMacOS
     case wrongCode
     case lockedOut
     case unsupportedType
@@ -16,7 +16,7 @@ public enum LanError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notLocalNetwork: return "That address is not on your local network."
-        case .notScanbench: return "That device is not running 3lay Mac."
+        case .notThreeLayMacOS: return "That device is not running 3lay Mac."
         case .wrongCode: return "The pairing code does not match the one shown on the Mac."
         case .lockedOut: return "Too many wrong codes. Wait a minute and try again."
         case .unsupportedType: return "The Mac only accepts STL, OBJ, PLY or USDZ files."
@@ -93,7 +93,7 @@ public struct LanClient {
         let (data, status) = try await perform(request)
         guard status == 200, let hello = try? JSONDecoder().decode(LanHello.self, from: data),
             hello.service == LanProtocol.serviceName
-        else { throw LanError.notScanbench }
+        else { throw LanError.notThreeLayMacOS }
         return hello
     }
 

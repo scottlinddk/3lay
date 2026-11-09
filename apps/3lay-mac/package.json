@@ -1,5 +1,5 @@
 {
-  "name": "scanbench",
+  "name": "threelaymacos",
   "version": "0.1.0",
   "private": true,
   "description": "Swift desktop app for importing phone scans onto a print plate",
