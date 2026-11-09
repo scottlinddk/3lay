@@ -71,10 +71,15 @@ public struct RootView: View {
                     model.showNearbyMac = true
                 }
                 if model.pairedMac != nil {
-                    Button("Send to \(model.pairedMac?.name ?? "my Mac")") {
-                        Task { await model.sendToMac(folder: folder, name: "Scan") }
+                    Button("Send photos to \(model.pairedMac?.name ?? "my Mac")") {
+                        Task { await model.sendPhotosToMac(folder: folder, name: "Scan") }
                     }.buttonStyle(.borderedProminent)
-                    Text("Builds the model on this phone, then sends it over Wi-Fi.")
+                    Text("Fastest. The Mac builds the model, with more detail than the phone can.")
+                        .font(.footnote).multilineTextAlignment(.center)
+                    Button("Build on this phone, then send") {
+                        Task { await model.sendToMac(folder: folder, name: "Scan") }
+                    }
+                    Text("Slower and warms the phone. Works with any version of 3lay Mac.")
                         .font(.footnote).multilineTextAlignment(.center)
                 }
                 if model.pairedHost != nil {
@@ -95,12 +100,16 @@ public struct RootView: View {
             } message: {
                 Text("The photos on this phone are deleted and cannot be recovered.")
             }
-        case .reconstructing:
-            ProgressView("Reconstructing on this phone...")
+        case .reconstructing(let fraction):
+            if let fraction {
+                ProgressView("Reconstructing on this phone... \(Int(fraction * 100))%", value: fraction)
+            } else {
+                ProgressView("Reconstructing on this phone...")
+            }
         case .submitting(let done, let total):
             ProgressView("Uploading \(done) of \(total)", value: Double(done), total: Double(max(total, 1)))
         case .sendingToMac(let name):
-            ProgressView("Sending to \(name)...")
+            ProgressView("Packing and sending to \(name)...")
         case .sentToMac(let name):
             VStack(spacing: 8) {
                 Text("Sent to \(name)").font(.title2)

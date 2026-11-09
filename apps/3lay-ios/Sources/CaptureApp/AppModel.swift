@@ -13,7 +13,7 @@ final class AppModel: ObservableObject {
         case ready
         case capturing
         case choosing(folder: URL)
-        case reconstructing
+        case reconstructing(Double?)
         case submitting(done: Int, total: Int)
         case submitted(jobId: String, photos: Int)
         case sendingToMac(name: String)
@@ -119,15 +119,18 @@ final class AppModel: ObservableObject {
         guard let mac = pairedMac else { showNearbyMac = true; return }
         let model = folder.appendingPathComponent("model.usdz")
         do {
-            if !FileManager.default.fileExists(atPath: model.path) {
-                phase = .reconstructing
-                try await OnDeviceReconstruction.run(
-                    imagesDirectory: folder.appendingPathComponent("Images"), output: model)
-            }
+            // Check the Mac first: a minute of reconstruction is wasted if it is not there.
             phase = .sendingToMac(name: mac.name)
             let client = try await reachableClient(for: mac)
             // A stale code is reported clearly here. Failing mid-upload only shows a dropped connection.
             try await client.verifyCode()
+            if !FileManager.default.fileExists(atPath: model.path) {
+                phase = .reconstructing(nil)
+                try await OnDeviceReconstruction.run(
+                    imagesDirectory: folder.appendingPathComponent("Images"), output: model,
+                    progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
+                phase = .sendingToMac(name: mac.name)
+            }
             try await client.upload(file: model, as: Self.macFilename(name))
             clearPendingCapture()
             phase = .sentToMac(name: mac.name)
@@ -137,6 +140,38 @@ final class AppModel: ObservableObject {
         } catch let error as OnDeviceError {
             // Reconstruction failed before anything was sent, so don't blame the Mac or the network.
             phase = .failed("\(error.localizedDescription) Your scan is kept on this phone.")
+        } catch {
+            phase = .failed("Could not send to \(mac.name): \(error.localizedDescription) Your scan is kept on this phone.")
+        }
+    }
+
+    /// Sends the photos and lets the Mac build the model. Quicker for the phone and more detailed
+    /// than building on the phone. Falls back to a clear message on a Mac that cannot do this yet.
+    func sendPhotosToMac(folder: URL, name: String) async {
+        guard let mac = pairedMac else { showNearbyMac = true; return }
+        var archive: URL?
+        defer { archive.map { try? FileManager.default.removeItem(at: $0) } }
+        do {
+            phase = .sendingToMac(name: mac.name)
+            let client = try await reachableClient(for: mac)
+            try await client.verifyCode()
+            guard let limit = try await client.hello().maxCaptureBytes else {
+                phase = .failed("\(mac.name) runs an older 3lay Mac that cannot build from photos. "
+                    + "Update it, or choose Build on this phone. Your scan is kept on this phone.")
+                return
+            }
+            let zip = try CaptureArchive.make(
+                imagesDirectory: folder.appendingPathComponent("Images"),
+                name: Self.macFilename(name).replacingOccurrences(of: ".usdz", with: ""))
+            archive = zip
+            let size = (try? FileManager.default.attributesOfItem(atPath: zip.path)[.size] as? Int) ?? 0
+            if size > limit { throw LanError.tooLarge(maxBytes: limit) }
+            try await client.upload(file: zip)
+            clearPendingCapture()
+            phase = .sentToMac(name: mac.name)
+        } catch LanError.wrongCode, LanError.lockedOut {
+            phase = .failed("\(mac.name) did not accept the code. If you made a new code on the Mac, "
+                + "open Nearby Mac and enter it again. Your scan is kept on this phone.")
         } catch {
             phase = .failed("Could not send to \(mac.name): \(error.localizedDescription) Your scan is kept on this phone.")
         }
@@ -213,11 +248,12 @@ final class AppModel: ObservableObject {
     /// Reconstructs on the phone and uploads the mesh. No Mac needed, but lower detail.
     func submitOnDevice(folder: URL, name: String) async {
         guard let pairing else { phase = .needsPairing; return }
-        phase = .reconstructing
+        phase = .reconstructing(nil)
         let model = folder.appendingPathComponent("model.usdz")
         do {
             try await OnDeviceReconstruction.run(
-                imagesDirectory: folder.appendingPathComponent("Images"), output: model)
+                imagesDirectory: folder.appendingPathComponent("Images"), output: model,
+                progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
             let api = APIClient(transport: URLSessionTransport(baseURL: pairing.server, token: pairing.token))
             let uploader = ResumableUploader(api: api, store: FileUploadStore())
             let job = try await api.createJob(name: name, sourceKind: "mesh")

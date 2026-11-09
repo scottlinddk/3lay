@@ -22,7 +22,7 @@ let package = Package(
                 "MeshCheck.swift", "ReceiverCheck.swift", "convert_usdz.swift", "MECHANICS.md",
                 "README.md", "build.sh", "sources.sh", "mechanics.json", "rebuild_check", "package.json"
             ],
-            sources: ["Mesh.swift", "UsdzConverter.swift", "LanAdvertiser.swift", "PhoneReceiver.swift", "ThreeLayMacOS.swift"],
+            sources: ["Mesh.swift", "UsdzConverter.swift", "PhotoReconstruction.swift", "LanAdvertiser.swift", "PhoneReceiver.swift", "ThreeLayMacOS.swift"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI")

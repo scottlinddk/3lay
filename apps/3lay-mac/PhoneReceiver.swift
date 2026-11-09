@@ -192,15 +192,16 @@ final class PhoneReceiver {
             respond(fd, failure.status, "text/plain", Data(failure.message.utf8)); return
         }
         let name = URL(fileURLWithPath: components.path).lastPathComponent
-        guard LanProtocol.isAcceptedFilename(name) else {
-            respond(fd, "415 Unsupported Media Type", "text/plain", Data("Send STL, OBJ, ASCII PLY or USDZ".utf8)); return
+        guard LanProtocol.isAcceptedUpload(name) else {
+            respond(fd, "415 Unsupported Media Type", "text/plain", Data("Send STL, OBJ, ASCII PLY, USDZ or a zip of photos".utf8)); return
         }
         let length = headerLines.compactMap { line -> Int? in
             let p = line.split(separator: ":", maxSplits: 1)
             return p.count == 2 && p[0].lowercased() == "content-length" ? Int(p[1].trimmingCharacters(in: .whitespaces)) : nil
         }.first
         guard let length, length >= 0 else { respond(fd, "411 Length Required", "text/plain", Data("Content-Length required".utf8)); return }
-        guard length <= LanProtocol.maxUploadBytes else { respond(fd, "413 Payload Too Large", "text/plain", Data("100 MB maximum".utf8)); return }
+        let limit = LanProtocol.maxBytes(for: name)
+        guard length <= limit else { respond(fd, "413 Payload Too Large", "text/plain", Data("\(limit / 1_000_000) MB maximum".utf8)); return }
         do {
             try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
             let id = UUID().uuidString

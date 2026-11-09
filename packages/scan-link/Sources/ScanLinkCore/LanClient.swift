@@ -19,7 +19,7 @@ public enum LanError: Error, Equatable, LocalizedError {
         case .notThreeLayMacOS: return "That device is not running 3lay Mac."
         case .wrongCode: return "The pairing code does not match the one shown on the Mac."
         case .lockedOut: return "Too many wrong codes. Wait a minute and try again."
-        case .unsupportedType: return "The Mac only accepts STL, OBJ, PLY or USDZ files."
+        case .unsupportedType: return "The Mac only accepts STL, OBJ, PLY, USDZ or a zip of photos."
         case .tooLarge(let max): return "The file is larger than the Mac's \(max / 1_000_000) MB limit."
         case .rejected(let status, let message): return "The Mac refused the request (\(status)): \(message)"
         case .unreachable(let why): return "Could not reach the Mac: \(why)"
@@ -75,12 +75,12 @@ public struct LanClient {
         return request
     }
 
-    private func check(status: Int, body: Data) throws {
+    private func check(status: Int, body: Data, maxBytes: Int = LanProtocol.maxUploadBytes) throws {
         switch status {
         case 200..<300: return
         case 403: throw LanError.wrongCode
         case 429: throw LanError.lockedOut
-        case 413: throw LanError.tooLarge(maxBytes: LanProtocol.maxUploadBytes)
+        case 413: throw LanError.tooLarge(maxBytes: maxBytes)
         case 415: throw LanError.unsupportedType
         default: throw LanError.rejected(status: status, message: String(decoding: body.prefix(200), as: UTF8.self))
         }
@@ -108,12 +108,13 @@ public struct LanClient {
     /// Streams `file` to the Mac. `filename` is what the Mac saves it as (default: the file's name).
     public func upload(file: URL, as filename: String? = nil) async throws {
         let name = filename ?? file.lastPathComponent
-        guard LanProtocol.isAcceptedFilename(name) else { throw LanError.unsupportedType }
+        guard LanProtocol.isAcceptedUpload(name) else { throw LanError.unsupportedType }
+        let limit = LanProtocol.maxBytes(for: name)
         let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
-        guard size <= LanProtocol.maxUploadBytes else { throw LanError.tooLarge(maxBytes: LanProtocol.maxUploadBytes) }
+        guard size <= limit else { throw LanError.tooLarge(maxBytes: limit) }
         var request = authorized(try url(LanProtocol.uploadPath(for: name)), method: "PUT")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let (data, status) = try await perform(request, file: file)
-        try check(status: status, body: data)
+        try check(status: status, body: data, maxBytes: limit)
     }
 }

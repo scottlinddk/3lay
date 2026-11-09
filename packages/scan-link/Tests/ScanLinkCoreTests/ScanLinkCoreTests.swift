@@ -14,6 +14,19 @@ final class ScanLinkCoreTests: XCTestCase {
         for bad in ["a.zip", "a", "a.stl.exe", ".stl"] { XCTAssertFalse(LanProtocol.isAcceptedFilename(bad), bad) }
     }
 
+    func testCaptureArchivesAreSeparateFromMeshes() {
+        XCTAssertTrue(LanProtocol.isCaptureArchive("Scan.ZIP"))
+        XCTAssertTrue(LanProtocol.isAcceptedUpload("Scan.zip"))
+        XCTAssertTrue(LanProtocol.isAcceptedUpload("a.usdz"))
+        XCTAssertFalse(LanProtocol.isAcceptedUpload("a.exe"))
+        XCTAssertGreaterThan(LanProtocol.maxBytes(for: "a.zip"), LanProtocol.maxBytes(for: "a.usdz"))
+    }
+
+    func testHelloFromOlderMacHasNoCaptureLimit() throws {
+        let old = #"{"service":"threelaymacos","version":1,"name":"Old","maxBytes":1,"extensions":["stl"]}"#
+        XCTAssertNil(try JSONDecoder().decode(LanHello.self, from: Data(old.utf8)).maxCaptureBytes)
+    }
+
     func testUploadPathEncodesOneSegmentAndStripsDirectories() {
         XCTAssertEqual(LanProtocol.uploadPath(for: "my scan.usdz"), "/upload/my%20scan.usdz")
         XCTAssertEqual(LanProtocol.uploadPath(for: "../../etc/x.stl"), "/upload/x.stl")
