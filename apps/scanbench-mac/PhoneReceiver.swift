@@ -62,6 +62,14 @@ final class PhoneReceiver {
             while true {
                 let client = accept(socketFD, nil, nil)
                 if client < 0 { break }
+                // A phone can disconnect before we send the response. Return EPIPE instead
+                // of terminating the app with SIGPIPE, including for unauthenticated requests.
+                var noSigPipe: Int32 = 1
+                guard setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe,
+                                 socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+                    close(client)
+                    continue
+                }
                 DispatchQueue.global(qos: .utility).async { [self] in
                     defer { close(client) }
                     handle(client)
@@ -195,18 +203,25 @@ final class PhoneReceiver {
         guard length <= LanProtocol.maxUploadBytes else { respond(fd, "413 Payload Too Large", "text/plain", Data("100 MB maximum".utf8)); return }
         do {
             try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
-            let file = inbox.appending(path: "\(Int(Date().timeIntervalSince1970))-\(name)")
-            FileManager.default.createFile(atPath: file.path, contents: nil)
-            let stream = try FileHandle(forWritingTo: file)
+            let id = UUID().uuidString
+            let temporary = inbox.appending(path: ".\(id).upload")
+            let file = inbox.appending(path: "\(id)-\(name)")
+            guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else {
+                throw ScanError.message("Could not create upload file")
+            }
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            let stream = try FileHandle(forWritingTo: temporary)
             defer { try? stream.close() }
             var written = min(length, bytes.count - end)
             try stream.write(contentsOf: bytes[end..<(end + written)])
             while written < length {
                 let n = recv(fd, &buffer, min(buffer.count, length - written), 0)
-                if n <= 0 { try? FileManager.default.removeItem(at: file); return }
+                if n <= 0 { return }
                 try stream.write(contentsOf: buffer.prefix(n))
                 written += n
             }
+            try stream.close()
+            try FileManager.default.moveItem(at: temporary, to: file)
             respond(fd, "200 OK", "text/plain", Data("Scan received".utf8))
             onFile(file)
         } catch { respond(fd, "500 Internal Server Error", "text/plain", Data("Could not save scan".utf8)) }

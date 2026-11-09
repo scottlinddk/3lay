@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 #if canImport(ScanLinkCore)
 import ScanLinkCore
 #endif
@@ -34,6 +35,12 @@ import ScanLinkCore
         guard hello.name == "Check Mac", hello.version == LanProtocol.version else { fail("hello mismatch") }
         try await client.verifyCode()
 
+        // A peer can reset the connection before either response write. The receiver
+        // must survive even with the default SIGPIPE disposition.
+        signal(SIGPIPE, SIG_DFL)
+        for _ in 0..<64 { try disconnectBeforeResponse(port: receiver.port) }
+        _ = try await client.hello()
+
         let obj = inbox.deletingLastPathComponent().appending(path: "my triangle \(UUID().uuidString).obj")
         try "v 0 0 0\nv 20 0 0\nv 0 10 0\nf 1 2 3\n".write(to: obj, atomically: true, encoding: .utf8)
         try await client.upload(file: obj)
@@ -59,6 +66,36 @@ import ScanLinkCore
         try Data([1]).write(to: junk)
         await expect(.unsupportedType, { try await client.upload(file: junk) }, "unsupported type")
 
+        // Concurrent phones/browser sends may choose the same filename. Each completed
+        // upload must retain its own path and bytes, with no partial files published.
+        let batchInbox = inbox.appending(path: "batch")
+        let batchReceived = DispatchSemaphore(value: 0)
+        let batch = Box()
+        let batchReceiver = try PhoneReceiver(code: "123456", port: 0, inbox: batchInbox, name: "Batch") { url in
+            batch.url = url
+            batchReceived.signal()
+        }
+        let batchClient = LanClient(endpoint: LanEndpoint(name: "Batch", host: "127.0.0.1", port: batchReceiver.port), code: "123456")
+        let files = try (0..<16).map { i -> URL in
+            let file = inbox.appending(path: "source-\(i).obj")
+            try Data(repeating: UInt8(i), count: 65_536).write(to: file)
+            return file
+        }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for file in files { group.addTask { try await batchClient.upload(file: file, as: "same.obj") } }
+            try await group.waitForAll()
+        }
+        for _ in files {
+            guard batchReceived.wait(timeout: .now() + 5) == .success else { fail("missing concurrent upload") }
+        }
+        let paths = batch.urls
+        guard Set(paths).count == files.count else { fail("uploads shared a destination") }
+        let expected = try Set(files.map { try Data(contentsOf: $0) })
+        let actual = try Set(paths.map { try Data(contentsOf: $0) })
+        guard actual == expected else { fail("concurrent upload bytes were overwritten") }
+        guard try FileManager.default.contentsOfDirectory(atPath: batchInbox.path).count == files.count
+        else { fail("partial upload files were left behind") }
+
         // Rotating the code must invalidate the old one.
         receiver.code = "654321"
         await expect(.wrongCode, { try await client.verifyCode() }, "stale code")
@@ -75,5 +112,38 @@ import ScanLinkCore
         print("LAN receiver check passed")
     }
 
-    final class Box: @unchecked Sendable { var url: URL? }
+    static func disconnectBeforeResponse(port: UInt16) throws {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { fail("could not create disconnect client") }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connected == 0 else { fail("disconnect client could not connect") }
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        let request = Data("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8)
+        let sent = request.withUnsafeBytes { Darwin.send(fd, $0.baseAddress!, $0.count, 0) }
+        guard sent == request.count else { fail("disconnect request was not sent") }
+        // Abort rather than gracefully draining the response.
+        var reset = linger(l_onoff: 1, l_linger: 0)
+        setsockopt(fd, SOL_SOCKET, SO_LINGER, &reset, socklen_t(MemoryLayout<linger>.size))
+    }
+
+    final class Box: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [URL] = []
+        var urls: [URL] { lock.lock(); defer { lock.unlock() }; return values }
+        var url: URL? {
+            get { urls.last }
+            set { if let newValue { lock.lock(); values.append(newValue); lock.unlock() } }
+        }
+    }
 }

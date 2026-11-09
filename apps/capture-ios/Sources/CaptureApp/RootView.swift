@@ -46,6 +46,9 @@ public struct RootView: View {
             }
         case .ready:
             VStack(spacing: 12) {
+                if model.pendingCapture != nil {
+                    Button("Resume saved capture") { model.recoverCapture() }.buttonStyle(.borderedProminent)
+                }
                 if let host = model.pairedHost { Text("Server: \(host)").font(.footnote) }
                 if let mac = model.pairedMac { Text("Mac: \(mac.name)").font(.footnote) }
                 if ObjectCaptureAvailability.isSupported {
@@ -63,6 +66,9 @@ public struct RootView: View {
         case .choosing(let folder):
             VStack(spacing: 12) {
                 Text("Capture complete").font(.title2)
+                Button(model.pairedMac == nil ? "Find a Mac nearby" : "Change Mac or pairing code") {
+                    model.showNearbyMac = true
+                }
                 if model.pairedMac != nil {
                     Button("Send to \(model.pairedMac?.name ?? "my Mac")") {
                         Task { await model.sendToMac(folder: folder, name: "Scan") }
@@ -77,9 +83,6 @@ public struct RootView: View {
                     Button("Reconstruct on this phone and upload") {
                         Task { await model.submitOnDevice(folder: folder, name: "Scan") }
                     }
-                }
-                if !model.isPaired {
-                    Button("Find a Mac nearby") { model.showNearbyMac = true }.buttonStyle(.borderedProminent)
                 }
             }
         case .reconstructing:
@@ -103,7 +106,7 @@ public struct RootView: View {
         case .failed(let message):
             VStack(spacing: 8) {
                 Text(message).multilineTextAlignment(.center)
-                Button("Back") { model.cancelCapture() }
+                Button("Back") { model.recoverCapture() }
             }
         }
     }

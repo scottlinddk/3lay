@@ -26,18 +26,23 @@ final class AppModel: ObservableObject {
     @Published var pendingLink: PairingLink?
     @Published var showNearbyMac = false
     @Published private(set) var pairedMac: PairedMac?
+    @Published private(set) var pendingCapture: URL?
     var pairedHost: String? { pairing?.server.host }
     var isPaired: Bool { pairing != nil || pairedMac != nil }
     private let pairingStore = KeychainPairingStore()
     private let macStore = KeychainMacStore()
     private var pairing: PairingLink?
+    private let captureStore = PendingCaptureStore()
 
     init() {
         let link = pairingStore.load()
         let mac = macStore.load()
         pairing = link
         pairedMac = mac
-        phase = (link == nil && mac == nil) ? .needsPairing : .ready
+        let folder = captureStore.load()
+        pendingCapture = folder
+        phase = folder.map { Phase.choosing(folder: $0) }
+            ?? ((link == nil && mac == nil) ? .needsPairing : .ready)
     }
 
     /// Called for deep links and pasted text. Never pairs on its own: a crafted link must not be
@@ -56,7 +61,7 @@ final class AppModel: ObservableObject {
         do {
             try pairingStore.save(link)
             pairing = link
-            phase = .ready
+            recoverCapture()
         } catch {
             phase = .failed("Could not store the pairing: \(error.localizedDescription)")
         }
@@ -67,7 +72,7 @@ final class AppModel: ObservableObject {
     func unpair() {
         pairingStore.clear()
         pairing = nil
-        phase = isPaired ? .ready : .needsPairing
+        recoverCapture()
     }
 
     // MARK: Nearby Mac (local network)
@@ -91,7 +96,7 @@ final class AppModel: ObservableObject {
     func forgetMac() {
         macStore.clear()
         pairedMac = nil
-        phase = isPaired ? .ready : .needsPairing
+        recoverCapture()
     }
 
     /// The Mac's current address. Tries the last known one first, then looks the Mac up by
@@ -124,6 +129,7 @@ final class AppModel: ObservableObject {
             // A stale code is reported clearly here. Failing mid-upload only shows a dropped connection.
             try await client.verifyCode()
             try await client.upload(file: model, as: Self.macFilename(name))
+            clearPendingCapture()
             phase = .sentToMac(name: mac.name)
         } catch LanError.wrongCode, LanError.lockedOut {
             phase = .failed("\(mac.name) did not accept the code. If you made a new code on the Mac, "
@@ -140,7 +146,25 @@ final class AppModel: ObservableObject {
         return "\(safe.isEmpty ? "Scan" : safe) \(stamp).usdz"
     }
 
-    func captureFinished(folder: URL) { phase = .choosing(folder: folder) }
+    func captureFinished(folder: URL) {
+        pendingCapture = folder
+        do {
+            try captureStore.save(folder: folder)
+            phase = .choosing(folder: folder)
+        } catch {
+            phase = .failed("Could not save capture recovery information: \(error.localizedDescription)")
+        }
+    }
+
+    func recoverCapture() {
+        if let folder = pendingCapture { phase = .choosing(folder: folder) }
+        else { phase = isPaired ? .ready : .needsPairing }
+    }
+
+    private func clearPendingCapture() {
+        try? captureStore.clear()
+        pendingCapture = nil
+    }
     func beginCapture() { phase = .capturing }
     func cancelCapture() { phase = .ready }
 
@@ -165,6 +189,7 @@ final class AppModel: ObservableObject {
                     Task { @MainActor in self.phase = .submitting(done: done, total: total) }
                 })
             phase = .submitted(jobId: result.jobId, photos: result.photoCount)
+            clearPendingCapture()
         } catch {
             phase = .failed("Upload failed: \(error). Your photos are kept, try again to resume.")
         }
@@ -184,6 +209,7 @@ final class AppModel: ObservableObject {
             phase = .submitting(done: 0, total: 1)
             _ = try await uploader.upload(file: model, jobId: job.id, kind: "original")
             phase = .submitted(jobId: job.id, photos: 0)
+            clearPendingCapture()
         } catch {
             phase = .failed("On-device reconstruction failed: \(error)")
         }
