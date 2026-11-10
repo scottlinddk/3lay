@@ -39,6 +39,11 @@ import Foundation
         try "v 0 0 0\nv 0.2 0 0\nv 0 0.1 0\nf 1 2 3\n".write(to: metres, atomically: true, encoding: .utf8)
         let scaled = try Mesh.load(metres, unitScale: Mesh.metresToMillimetres)
         guard abs(scaled.bounds.x - 200) < 0.01, abs(scaled.bounds.y - 100) < 0.01 else { throw ScanError.message("Metres to millimetres check failed") }
+        // An Object Capture model stands along Y: its 0.1 m height must end up along Z, on the plate.
+        let upright = try Mesh.load(metres, unitScale: Mesh.metresToMillimetres, yUp: true)
+        guard abs(upright.bounds.x - 200) < 0.01, abs(upright.bounds.y) < 0.01, abs(upright.bounds.z - 100) < 0.01,
+              upright.vertices.allSatisfy({ $0.z >= -0.01 })
+        else { throw ScanError.message("Y-up to Z-up check failed") }
         print("Mesh import and STL export passed")
     }
 }

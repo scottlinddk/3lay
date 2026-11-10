@@ -18,8 +18,13 @@ enum PhotoQuality {
     static let minimumKept = 20
     /// Never set aside more than this share of the photos.
     static let maxDropShare = 25
-    /// A photo is blurry when its sharpness is under this fraction of the median photo's.
+    /// A photo is blurry when its sharpness is under this fraction of its neighbours' median.
     static let blurRatio = 0.4
+    /// How many photos before and after one it is compared with. Neighbours show nearly the same
+    /// view, so a much softer photo among them is blur. Comparing with the whole capture instead
+    /// would throw out every view of a plain side of the object, or a whole lap from above over a
+    /// plain table, and leave a hole in the model.
+    static let neighbours = 3
 
     private static let photoExtensions: Set<String> = ["heic", "heif", "jpg", "jpeg", "png"]
 
@@ -38,10 +43,18 @@ enum PhotoQuality {
         }
         guard scored.count > minimumKept else { return Report(total: images.count, kept: images.count, withDepth: withDepth) }
 
-        let sorted = scored.sorted { $0.score < $1.score }
-        let median = sorted[sorted.count / 2].score
+        // Capture order: Object Capture numbers its photos.
+        let ordered = scored.sorted { $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending }
+        var candidates: [(url: URL, ratio: Double)] = []
+        for (index, photo) in ordered.enumerated() {
+            let around = (max(0, index - neighbours)...min(ordered.count - 1, index + neighbours))
+                .filter { $0 != index }.map { ordered[$0].score }.sorted()
+            // The lower middle value, so the first photo of a plain stretch is judged against that stretch.
+            let reference = around[(around.count - 1) / 2]
+            if reference > 0, photo.score < reference * blurRatio { candidates.append((photo.url, photo.score / reference)) }
+        }
         let allowed = min(scored.count * maxDropShare / 100, scored.count - minimumKept)
-        let blurry = sorted.prefix(allowed).filter { $0.score < median * blurRatio }
+        let blurry = candidates.sorted { $0.ratio < $1.ratio }.prefix(allowed)
         if !blurry.isEmpty { try manager.createDirectory(at: rejected, withIntermediateDirectories: true) }
         for photo in blurry {
             let stem = photo.url.deletingPathExtension().lastPathComponent
@@ -64,7 +77,7 @@ enum PhotoQuality {
     }
 
     /// Variance of the Laplacian on a small grayscale copy: sharp edges give a large value, blur a small one.
-    /// Only meaningful compared with other photos from the same capture.
+    /// Only meaningful compared with photos of nearly the same view.
     static func sharpness(of source: CGImageSource) -> Double? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
