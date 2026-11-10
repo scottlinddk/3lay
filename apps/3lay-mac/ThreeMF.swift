@@ -18,7 +18,7 @@ enum ThreeMF {
 
     /// `vertices` are in millimetres. Triangles wind counter-clockwise seen from outside, as in STL.
     static func data(title: String, vertices: [SIMD3<Float>], faces: [SIMD3<Int>]) throws -> Data {
-        guard !vertices.isEmpty, !faces.isEmpty else { throw ScanError.message("Nothing to export") }
+        let (vertices, faces) = try welded(vertices: vertices, faces: faces)
         var model = #"<?xml version="1.0" encoding="UTF-8"?>"#
         model.reserveCapacity(vertices.count * 48 + faces.count * 40 + 512)
         model += #"<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">"#
@@ -27,9 +27,6 @@ enum ThreeMF {
         for v in vertices { model += "<vertex x=\"\(v.x)\" y=\"\(v.y)\" z=\"\(v.z)\"/>" }
         model += "</vertices><triangles>"
         for f in faces {
-            guard vertices.indices.contains(f.x), vertices.indices.contains(f.y), vertices.indices.contains(f.z) else {
-                throw ScanError.message("Mesh face references a missing vertex")
-            }
             model += "<triangle v1=\"\(f.x)\" v2=\"\(f.y)\" v3=\"\(f.z)\"/>"
         }
         model += #"</triangles></mesh></object></resources><build><item objectid="1"/></build></model>"#
@@ -38,6 +35,37 @@ enum ThreeMF {
             ("_rels/.rels", Data(rootRelationships.utf8)),
             ("3D/3dmodel.model", Data(model.utf8)),
         ])
+    }
+
+    /// Merges vertices at identical coordinates and drops triangles that collapse. STL (and so a USDZ
+    /// scan that came through STL) lists three private vertices per triangle; written as is, no two
+    /// triangles would share an edge and a slicer would see an open surface. 3MF requires shared
+    /// vertex indices for a manifold `model` object.
+    static func welded(vertices: [SIMD3<Float>], faces: [SIMD3<Int>]) throws -> ([SIMD3<Float>], [SIMD3<Int>]) {
+        guard !vertices.isEmpty, !faces.isEmpty else { throw ScanError.message("Nothing to export") }
+        var index: [SIMD3<UInt32>: Int] = [:]
+        index.reserveCapacity(vertices.count / 2)
+        var unique: [SIMD3<Float>] = []
+        var remap = [Int](repeating: 0, count: vertices.count)
+        for (i, v) in vertices.enumerated() {
+            // `+ 0` turns -0.0 into 0.0, which compare equal but have different bits.
+            let key = SIMD3<UInt32>((v.x + 0).bitPattern, (v.y + 0).bitPattern, (v.z + 0).bitPattern)
+            if let existing = index[key] { remap[i] = existing; continue }
+            remap[i] = unique.count
+            index[key] = unique.count
+            unique.append(v)
+        }
+        var kept: [SIMD3<Int>] = []
+        kept.reserveCapacity(faces.count)
+        for f in faces {
+            guard vertices.indices.contains(f.x), vertices.indices.contains(f.y), vertices.indices.contains(f.z) else {
+                throw ScanError.message("Mesh face references a missing vertex")
+            }
+            let a = remap[f.x], b = remap[f.y], c = remap[f.z]
+            if a != b && b != c && a != c { kept.append(SIMD3(a, b, c)) }
+        }
+        guard !kept.isEmpty else { throw ScanError.message("Nothing to export") }
+        return (unique, kept)
     }
 
     private static func escape(_ text: String) -> String {

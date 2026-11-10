@@ -68,6 +68,7 @@ import ScanLinkCore
         try await client.upload(file: photos)
         guard received.wait(timeout: .now() + 5) == .success, box.url?.pathExtension == "zip" else { fail("zip not accepted") }
         guard try await client.hello().maxCaptureBytes == LanProtocol.maxCaptureBytes else { fail("hello hides capture support") }
+        guard try await client.hello().supportsLidarBundles == true else { fail("hello hides LiDAR bundle support") }
 
         let junk = obj.deletingPathExtension().appendingPathExtension("exe")
         try Data([1]).write(to: junk)

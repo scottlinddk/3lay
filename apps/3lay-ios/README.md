@@ -30,6 +30,11 @@ that USDZ. A model the Mac builds from photos is not sent back to the phone yet.
 ## Flow (server mode)
 
 1. Capture with `ObjectCaptureSession` (needs LiDAR; checked at runtime, not by model name).
+   There is a second mode, **Scan a room or large object (LiDAR)** (`LidarCapture.swift`): an ARKit
+   session builds the LiDAR scene mesh while posed photos are saved as you move (not while you move
+   too fast or tracking is poor). It writes a `3lay-lidar/1` bundle (`LidarManifest.swift`,
+   `PLYWriter.swift`) and sends it to a paired Mac as `*.lidar.zip`. It needs a paired Mac, and an unsent
+   scan is only kept until the app closes.
 2. **Send to Mac:** photos plus `manifest.json` upload as `photo` and `capture_bundle` artifacts,
    then a `reconstruct` task is queued for the Mac worker (#23). Uploads resume after a lost
    connection or relaunch.
@@ -52,6 +57,8 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 
 - [ ] Nearby Mac checks in `docs/LAN_LINK.md` (Local Network prompt, pairing, real scan arrives).
 - [ ] LiDAR iPhone/iPad on a current iOS: capture a real object end to end, note iOS version and model.
+- [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
+      appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
 - [ ] Unsupported (non-LiDAR) device shows the explanation instead of crashing.
 - [ ] Open a pairing link: a confirmation names the server host, nothing is stored until you accept, and a second link asks before replacing the current server. Server and token persist across relaunch; Unpair clears them.
 - [ ] Airplane mode mid-upload, then reconnect and relaunch: the upload resumes, no duplicates.

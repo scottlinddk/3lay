@@ -5,9 +5,20 @@ import RealityKit
 /// (`PhotogrammetrySession`). Needs a Mac with enough GPU memory; older Macs report that
 /// through `PhotogrammetrySession.isSupported`.
 enum PhotoReconstruction {
+    /// The model and the detail level it was really built at, which can be lower than requested.
+    struct Built {
+        let url: URL
+        let detail: String
+        /// Photos used, blurry ones set aside, and how many carry LiDAR depth.
+        let quality: PhotoQuality.Report
+        /// Set when a higher level failed first, so the user knows why the model is coarser.
+        let fallbackNote: String?
+    }
+
     /// `archive` is a zip containing a folder of photos (HEIC, JPG or PNG). Returns the model's URL,
-    /// next to the archive. `progress` gets 0...1.
-    static func run(archive: URL, progress: @escaping (Double) -> Void) async throws -> URL {
+    /// next to the archive. `progress` gets 0...1. `useRaw` tries Apple's unprocessed `.raw` level
+    /// first (up to ~30M triangles, so it needs a lot of memory and disk).
+    static func run(archive: URL, useRaw: Bool = false, progress: @escaping (Double) -> Void) async throws -> Built {
         guard PhotogrammetrySession.isSupported else {
             throw ScanError.message("This Mac cannot build models from photos. Build on the phone instead.")
         }
@@ -15,16 +26,25 @@ enum PhotoReconstruction {
         defer { try? FileManager.default.removeItem(at: work) }
         try await unzip(archive, to: work)
         let photos = try photoFolder(in: work)
+        // Blurry frames soften the model, so set the worst aside before Object Capture reads the folder.
+        let rejected = archive.deletingLastPathComponent().appending(path: "rejected-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: rejected) }
+        let quality = try await Task.detached(priority: .userInitiated) {
+            try PhotoQuality.filter(photos: photos, rejected: rejected)
+        }.value
         let output = archive.deletingPathExtension().appendingPathExtension("usdz")
         try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
         // Most detail first. `.full` needs a lot of memory, so a failure drops one level and tries again.
-        let levels: [PhotogrammetrySession.Request.Detail] = [.full, .medium]
-        for (index, detail) in levels.enumerated() {
+        var levels: [(PhotogrammetrySession.Request.Detail, String)] = [(.full, "Full"), (.medium, "Medium")]
+        if useRaw { levels.insert((.raw, "Raw"), at: 0) }
+        var note: String?
+        for (index, level) in levels.enumerated() {
             do {
-                try await build(photos: photos, output: output, detail: detail, progress: progress)
-                return output
-            } catch is ScanError where index < levels.count - 1 {
+                try await build(photos: photos, output: output, detail: level.0, progress: progress)
+                return Built(url: output, detail: level.1, quality: quality, fallbackNote: note)
+            } catch let error as ScanError where index < levels.count - 1 {
+                note = "\(level.1) failed (\(error.localizedDescription))"
                 try? FileManager.default.removeItem(at: output)
                 continue
             }
@@ -58,7 +78,7 @@ enum PhotoReconstruction {
     }
 
     /// `ditto` ships with macOS and unpacks the zip a phone produces.
-    private static func unzip(_ archive: URL, to folder: URL) async throws {
+    static func unzip(_ archive: URL, to folder: URL) async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
