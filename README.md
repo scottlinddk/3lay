@@ -1,11 +1,11 @@
 # 3lay
 
-Turn real-world objects into your next 3D printing project. 3lay pairs guided iPhone scanning with a Mac companion app, letting you capture an object, send it over local Wi-Fi, inspect it on the big screen, and export an STL for your printing workflow. From something you can hold to something you can create with.
+Turn real-world objects into your next 3D printing project. 3lay pairs guided iPhone scanning with a Mac companion app, letting you capture an object, send it over local Wi-Fi, inspect it on the big screen, and export a 3MF (or STL) for your slicer. From something you can hold to something you can create with.
 
 | Path | What it is |
 | --- | --- |
 | `apps/3lay-ios` | 3lay iOS: capture app (SwiftUI, Object Capture). From [3D-scan](https://github.com/scottlinddk/3D-scan). |
-| `apps/3lay-mac` | 3lay Mac: receives scans, previews them and exports STL. From [scanbench](https://github.com/scottlinddk/scanbench). |
+| `apps/3lay-mac` | 3lay Mac: receives scans, previews them and exports 3MF or STL. From [scanbench](https://github.com/scottlinddk/scanbench). |
 | `packages/scan-link` | The LAN contract both apps compile: Bonjour service type, routes, client, address rules. |
 | `docs/LAN_LINK.md` | How the two apps find and talk to each other, security model, manual checks. |
 

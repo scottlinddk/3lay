@@ -5,7 +5,7 @@ sh build.sh
 export CLANG_MODULE_CACHE_PATH="$PWD/.cache"
 export SWIFT_MODULE_CACHE_PATH="$PWD/.cache"
 . ./sources.sh
-swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift MeshCheck.swift -o .build/MeshCheck
+swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift ThreeMF.swift MeshCheck.swift -o .build/MeshCheck
 .build/MeshCheck
 swiftc -disable-sandbox -swift-version 5 -parse-as-library PhotoQuality.swift PhotoQualityCheck.swift -o .build/PhotoQualityCheck
 .build/PhotoQualityCheck

@@ -21,6 +21,8 @@ final class AppModel: ObservableObject {
         case submitted(jobId: String, photos: Int)
         case sendingToMac(name: String)
         case sentToMac(name: String)
+        /// The model built on this phone, shown in AR Quick Look before anything is sent.
+        case viewing(folder: URL, model: URL)
         case failed(String)
     }
 
@@ -124,6 +126,23 @@ final class AppModel: ObservableObject {
         try? macStore.save(updated)
         pairedMac = updated
         return LanClient(endpoint: endpoint, code: mac.code)
+    }
+
+    /// Builds the model on the phone (reduced detail) and opens it so you can look at it before sending.
+    /// The USDZ stays in the capture folder, so "Send to Mac" from the viewer does not build it twice.
+    func buildAndPreview(folder: URL) async {
+        let model = folder.appendingPathComponent("model.usdz")
+        do {
+            if !FileManager.default.fileExists(atPath: model.path) {
+                phase = .reconstructing(nil)
+                try await OnDeviceReconstruction.run(
+                    imagesDirectory: folder.appendingPathComponent("Images"), output: model,
+                    progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
+            }
+            phase = .viewing(folder: folder, model: model)
+        } catch {
+            phase = .failed("\(error.localizedDescription) Your scan is kept on this phone.")
+        }
     }
 
     /// Reconstructs on the phone, then sends the USDZ to the paired Mac. 3lay Mac converts it to STL.
