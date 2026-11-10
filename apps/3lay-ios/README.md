@@ -52,7 +52,7 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 - [ ] Nearby Mac checks in `docs/LAN_LINK.md` (Local Network prompt, pairing, real scan arrives).
 - [ ] LiDAR iPhone/iPad on a current iOS: capture a real object end to end, note iOS version and model.
 - [ ] Object scan sent as photos: on the Mac the model stands upright on the plate (not on its side), and
-      the status line shows `1M-triangle detail` with clearly more than 250,000 triangles (macOS 14 or later).
+      the status line shows `1M-triangle detail` with clearly more than 250,000 triangles.
 - [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
       appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
 - [ ] Unsupported (non-LiDAR) device shows the explanation instead of crashing.

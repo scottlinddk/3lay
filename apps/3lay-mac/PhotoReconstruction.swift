@@ -24,23 +24,19 @@ enum PhotoReconstruction {
 
     /// Triangle budgets for the model. The preset levels stop at 250k triangles (`.full`) and keep
     /// finer detail only in texture maps, which an STL throws away. For printing the detail has to
-    /// be in the geometry, so on macOS 14+ the model is built at a custom level with a larger budget.
+    /// be in the geometry, so the model is built at a custom level (macOS 14) with a larger budget.
     /// Both stay well inside what `Mesh.load` accepts (10M triangles, 500 MB of STL).
     static let printPolygons: UInt = 1_000_000
     static let maximumPolygons: UInt = 3_000_000
 
     /// Most detail first. A level that fails (usually for lack of memory) drops to the next one.
     private static func levels(maximumDetail: Bool) -> [Level] {
-        var levels = [Level(name: "Full", detail: .full, polygons: nil), Level(name: "Medium", detail: .medium, polygons: nil)]
-        if #available(macOS 14.0, *) {
-            let budget = maximumDetail ? maximumPolygons : printPolygons
-            levels.insert(Level(name: "\(budget / 1_000_000)M-triangle", detail: .custom, polygons: budget), at: 0)
-        } else if maximumDetail {
-            // macOS 13 has no custom level. `.raw` is unprocessed and can reach 30M triangles, more
-            // than the importer takes, so it is only tried when asked for.
-            levels.insert(Level(name: "Raw", detail: .raw, polygons: nil), at: 0)
-        }
-        return levels
+        let budget = maximumDetail ? maximumPolygons : printPolygons
+        return [
+            Level(name: "\(budget / 1_000_000)M-triangle", detail: .custom, polygons: budget),
+            Level(name: "Full", detail: .full, polygons: nil),
+            Level(name: "Medium", detail: .medium, polygons: nil),
+        ]
     }
 
     /// `archive` is a zip containing a folder of photos (HEIC, JPG or PNG). Returns the model's URL,
@@ -81,7 +77,7 @@ enum PhotoReconstruction {
     private static func build(photos: URL, output: URL, level: Level, progress: @escaping (Double) -> Void) async throws {
         var configuration = PhotogrammetrySession.Configuration()
         configuration.featureSensitivity = .high  // picks up fine texture like printed text and page edges
-        if #available(macOS 14.0, *), let polygons = level.polygons {
+        if let polygons = level.polygons {
             configuration.customDetailSpecification.maximumPolygonCount = polygons
             // Only the shape ends up in the STL, so do not spend memory on large texture maps.
             configuration.customDetailSpecification.outputTextureMaps = .diffuseColor

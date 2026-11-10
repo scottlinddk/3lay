@@ -6,7 +6,7 @@ import PackageDescription
 // file; it compiles the same shared sources from packages/scan-link.
 let package = Package(
     name: "ThreeLayMacOS",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "ThreeLayMacOS", targets: ["ThreeLayMacOS"])
     ],

@@ -292,7 +292,7 @@ struct ThreeLayMacOSView: View {
             Text("Open the 3lay iOS app, choose Nearby Mac, pick this Mac and enter the code. Then scan an object and send it here.").font(.caption).foregroundStyle(.secondary)
             Text("Pairing code  \(state.code)").font(.headline).foregroundStyle(accent)
             Toggle("Maximum detail", isOn: $state.maximumDetail)
-            Text("On macOS 14 or later, photo scans are built with up to 1 million triangles so fine shapes survive in the STL. This raises it to 3 million: slower and needs more memory. If a level fails it falls back to Full, then Medium, and the status line says which was used.").font(.caption).foregroundStyle(.secondary)
+            Text("Photo scans are built with up to 1 million triangles so fine shapes survive in the STL. This raises it to 3 million: slower and needs more memory. If a level fails it falls back to Full, then Medium, and the status line says which was used.").font(.caption).foregroundStyle(.secondary)
             Button("New code") { state.rotateCode() }
             Text("A new code disconnects phones that used the old one.").font(.caption).foregroundStyle(.secondary)
             Text("No Mac in the list? Type this address on the phone, or open it in the phone's browser:").font(.caption).foregroundStyle(.secondary).padding(.top, 8)
