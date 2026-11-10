@@ -13,6 +13,9 @@ final class AppModel: ObservableObject {
         case ready
         case capturing
         case choosing(folder: URL)
+        case lidarCapturing
+        /// A finished LiDAR scan waiting to be sent. Its details are in `pendingLidar`.
+        case lidarReady
         case reconstructing(Double?)
         case submitting(done: Int, total: Int)
         case submitted(jobId: String, photos: Int)
@@ -27,6 +30,15 @@ final class AppModel: ObservableObject {
     @Published var showNearbyMac = false
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var pendingCapture: URL?
+    /// A finished LiDAR scan that has not reached the Mac yet. Kept in memory only, so after an app
+    /// restart it is no longer offered (unlike Object Capture scans, which are recovered).
+    @Published private(set) var pendingLidar: PendingLidar?
+
+    struct PendingLidar: Equatable {
+        let folder: URL
+        let photos: Int
+        let triangles: Int
+    }
     var pairedHost: String? { pairing?.server.host }
     var isPaired: Bool { pairing != nil || pairedMac != nil }
     private let pairingStore = KeychainPairingStore()
@@ -177,6 +189,58 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: LiDAR mode (rooms and large objects)
+
+    /// Needs a paired Mac first: a LiDAR scan has nowhere else to go (the server cannot use it).
+    func beginLidarCapture() {
+        guard pairedMac != nil else { showNearbyMac = true; return }
+        phase = .lidarCapturing
+    }
+
+    func lidarCaptureFinished(folder: URL, photos: Int, triangles: Int) {
+        pendingLidar = PendingLidar(folder: folder, photos: photos, triangles: triangles)
+        phase = .lidarReady
+    }
+
+    func discardLidar() {
+        if let folder = pendingLidar?.folder { try? FileManager.default.removeItem(at: folder) }
+        pendingLidar = nil
+        phase = isPaired ? .ready : .needsPairing
+    }
+
+    /// Zips the LiDAR bundle as `<name>.lidar.zip` and sends it. 3lay Mac imports the mesh as is.
+    func sendLidarToMac(name: String) async {
+        guard let mac = pairedMac, let pending = pendingLidar else { showNearbyMac = true; return }
+        var archive: URL?
+        defer { archive.map { try? FileManager.default.removeItem(at: $0) } }
+        do {
+            phase = .sendingToMac(name: mac.name)
+            let client = try await reachableClient(for: mac)
+            try await client.verifyCode()
+            let hello = try await client.hello()
+            guard hello.supportsLidarBundles == true, let limit = hello.maxCaptureBytes else {
+                phase = .failed("\(mac.name) runs an older 3lay Mac that cannot import LiDAR scans. "
+                    + "Update it first. Your scan is kept on this phone.")
+                return
+            }
+            let zip = try CaptureArchive.make(
+                imagesDirectory: pending.folder,
+                name: Self.macFilename(name).replacingOccurrences(of: ".usdz", with: "") + ".lidar")
+            archive = zip
+            let size = (try? FileManager.default.attributesOfItem(atPath: zip.path)[.size] as? Int) ?? 0
+            if size > limit { throw LanError.tooLarge(maxBytes: limit) }
+            try await client.upload(file: zip)
+            try? FileManager.default.removeItem(at: pending.folder)
+            pendingLidar = nil
+            phase = .sentToMac(name: mac.name)
+        } catch LanError.wrongCode, LanError.lockedOut {
+            phase = .failed("\(mac.name) did not accept the code. If you made a new code on the Mac, "
+                + "open Nearby Mac and enter it again. Your scan is kept on this phone.")
+        } catch {
+            phase = .failed("Could not send to \(mac.name): \(error.localizedDescription) Your scan is kept on this phone.")
+        }
+    }
+
     static func macFilename(_ name: String, now: Date = Date()) -> String {
         let stamp = ISO8601DateFormatter().string(from: now)
             .replacingOccurrences(of: ":", with: "-")
@@ -196,6 +260,7 @@ final class AppModel: ObservableObject {
 
     func recoverCapture() {
         if let folder = pendingCapture { phase = .choosing(folder: folder) }
+        else if pendingLidar != nil { phase = .lidarReady }
         else { phase = isPaired ? .ready : .needsPairing }
     }
 

@@ -18,6 +18,11 @@ change them there and update this page in the same commit.
    - **Send photos** (default): a zip of the capture photos. The Mac builds the model itself with
      `PhotogrammetrySession` (`PhotoReconstruction.swift`), which is faster and more detailed than
      the phone. Only offered when `/api/hello` reports `maxCaptureBytes`; an older Mac refuses zips.
+   - **LiDAR scan** (rooms and large objects): `<name>.lidar.zip` holding `manifest.json`
+     (`3lay-lidar/1`), `mesh/scan.ply` (ARKit LiDAR mesh, binary little-endian PLY, meters, Z up) and
+     `photos/NNNN.jpg` with a camera pose and intrinsics each. The Mac imports the mesh and keeps the
+     photos. Only offered when `/api/hello` reports `supportsLidarBundles`; an older Mac would treat the
+     zip as photos and fail.
    - **Build on this phone, then send**: the phone reconstructs a reduced USDZ and `PUT`s that.
 5. 3lay Mac saves the file in `~/Library/Application Support/3lay Mac/inbox/`, converts USDZ to
    STL (`convert_usdz.swift`) and opens it on the plate.
@@ -30,7 +35,7 @@ such as `192.168.1.20` or `studio.local`, shown in 3lay Mac under **Import a sca
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /` | none | Browser upload page (STL, OBJ, ASCII PLY, USDZ). |
-| `GET /api/hello` | none | `{service:"threelaymacos", version, name, maxBytes, extensions, maxCaptureBytes?}`. Never contains the code. `maxCaptureBytes` is absent on a Mac that cannot build from photos. |
+| `GET /api/hello` | none | `{service:"threelaymacos", version, name, maxBytes, extensions, maxCaptureBytes?, supportsLidarBundles?}`. Never contains the code. `maxCaptureBytes` is absent on a Mac that cannot build from photos, `supportsLidarBundles` on one that cannot import `*.lidar.zip`. |
 | `GET /api/auth` | code | 200 if the code is right. Used to validate a typed code. |
 | `PUT /upload/<url-encoded filename>` | code | Raw file bytes, `Content-Length` required. 100 MB max for meshes, 2 GB for a `.zip` of photos. 200 when saved. |
 

@@ -20,6 +20,9 @@ public enum LanProtocol {
     /// phone and gives more detail. Photos are far larger than a reduced mesh, hence the bigger limit.
     public static let captureArchiveExtension = "zip"
     public static let maxCaptureBytes = 2_000_000_000
+    /// A LiDAR scan bundle: ARKit mesh plus posed photos (see docs/LAN_LINK.md). It is a zip too, so
+    /// it passes `isCaptureArchive`; the Mac tells the two apart by this suffix.
+    public static let lidarBundleSuffix = ".lidar.zip"
     public static let codeLength = 6
 
     /// Failed code attempts allowed before the receiver locks for `lockoutSeconds`.
@@ -36,6 +39,11 @@ public enum LanProtocol {
 
     public static func isCaptureArchive(_ name: String) -> Bool {
         (name as NSString).pathExtension.lowercased() == captureArchiveExtension
+    }
+
+    /// A LiDAR scan bundle (`*.lidar.zip`). Not a pile of photos for Object Capture.
+    public static func isLidarBundle(_ name: String) -> Bool {
+        name.lowercased().hasSuffix(lidarBundleSuffix)
     }
 
     /// A mesh file or a capture archive: everything the receiver takes.
@@ -67,6 +75,9 @@ public struct LanHello: Codable, Equatable {
     /// Largest capture archive the Mac takes. nil on a Mac that only accepts finished meshes, so
     /// the phone knows to build the model itself.
     public var maxCaptureBytes: Int?
+    /// true when the Mac imports `*.lidar.zip` bundles. nil on an older Mac, which would treat the
+    /// zip as a pile of photos and fail confusingly, so the phone checks this first.
+    public var supportsLidarBundles: Bool?
 
     public init(name: String) {
         service = LanProtocol.serviceName
@@ -75,5 +86,6 @@ public struct LanHello: Codable, Equatable {
         maxBytes = LanProtocol.maxUploadBytes
         extensions = LanProtocol.acceptedExtensions
         maxCaptureBytes = LanProtocol.maxCaptureBytes
+        supportsLidarBundles = true
     }
 }
