@@ -77,9 +77,9 @@ enum OnDeviceDescriber {
     }
 
     static func describe(mesh: Mesh) async throws -> Suggestion {
-        let facts = await Task.detached(priority: .userInitiated) { facts(of: mesh) }.value
+        let measured: Facts = await Task.detached(priority: .userInitiated) { OnDeviceDescriber.facts(of: mesh) }.value
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) { return try await Engine.describe(facts: facts) }
+        if #available(macOS 26.0, *) { return try await Engine.describe(facts: measured) }
         #endif
         throw ScanError.message("Needs macOS 26 or later with Apple Intelligence.")
     }
