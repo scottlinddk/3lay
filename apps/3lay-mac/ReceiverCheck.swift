@@ -69,14 +69,6 @@ import ScanLinkCore
         guard received.wait(timeout: .now() + 5) == .success, box.url?.pathExtension == "zip" else { fail("zip not accepted") }
         guard try await client.hello().maxCaptureBytes == LanProtocol.maxCaptureBytes else { fail("hello hides capture support") }
         guard try await client.hello().supportsLidarBundles == true else { fail("hello hides LiDAR bundle support") }
-        // A clean rebuild is only offered once the Mac says it can, and the note arrives beside the file.
-        guard try await client.hello().supportsRebuild == false else { fail("hello offers a rebuild without a key") }
-        receiver.rebuildAvailable = true
-        guard try await client.hello().supportsRebuild == true else { fail("hello hides rebuild support") }
-        try await client.upload(file: obj, as: "noted.rebuild.obj", note: "bracket & 2 holes")
-        guard received.wait(timeout: .now() + 5) == .success else { fail("noted upload not reported") }
-        let noted = try FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasSuffix("noted.rebuild.obj.note") }
-        guard noted.count == 1, try String(contentsOf: noted[0], encoding: .utf8) == "bracket & 2 holes" else { fail("the note did not arrive") }
 
         let junk = obj.deletingPathExtension().appendingPathExtension("exe")
         try Data([1]).write(to: junk)

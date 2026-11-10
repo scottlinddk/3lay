@@ -13,6 +13,8 @@ enum PhotoReconstruction {
         let quality: PhotoQuality.Report
         /// Set when a higher level failed first, so the user knows why the model is coarser.
         let fallbackNote: String?
+        /// A few of the photos as small JPEGs, kept for a scan package. nil when none could be saved.
+        let photos: URL?
     }
 
     /// One attempt: an Object Capture detail level and, for `.custom`, its triangle budget.
@@ -55,6 +57,9 @@ enum PhotoReconstruction {
         let quality = try await Task.detached(priority: .userInitiated) {
             try PhotoQuality.filter(photos: photos, rejected: rejected)
         }.value
+        // The originals are deleted after the build, so keep a few small copies for a scan package.
+        let kept = archive.deletingPathExtension().appendingPathExtension("photos")
+        let savedPhotos = await Task.detached(priority: .utility) { ScanPackage.savePhotos(from: photos, to: kept) }.value
         let output = archive.deletingPathExtension().appendingPathExtension("usdz")
         try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
@@ -63,7 +68,7 @@ enum PhotoReconstruction {
         for (index, level) in levels.enumerated() {
             do {
                 try await build(photos: photos, output: output, level: level, progress: progress)
-                return Built(url: output, detail: level.name, quality: quality, fallbackNote: note)
+                return Built(url: output, detail: level.name, quality: quality, fallbackNote: note, photos: savedPhotos > 0 ? kept : nil)
             } catch where index < levels.count - 1 {
                 // Any failure drops a level, also one thrown while the session is being set up.
                 note = "\(level.name) failed (\(error.localizedDescription))"

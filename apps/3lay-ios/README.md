@@ -53,10 +53,9 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 - [ ] LiDAR iPhone/iPad on a current iOS: capture a real object end to end, note iOS version and model.
 - [ ] Object scan sent as photos: on the Mac the model stands upright on the plate (not on its side), and
       the status line shows `1M-triangle detail` with clearly more than 250,000 triangles.
-- [ ] Clean rebuild: with an Anthropic API key saved in 3lay Mac, scan a simple mechanical part, switch on
-      **Also rebuild as a clean part (AI)**, describe it and send. The Mac imports the scan, then shows the
-      clean part with its deviation in millimetres; **Scan / Clean part** switches between them. Without a key
-      on the Mac the phone says so and keeps the scan.
+- [ ] AI rebuild: on the Mac, with a simple mechanical part on the plate, **Export scan package…**, unzip,
+      open the folder in a coding agent and paste the prompt. The agent returns `part.scad` and `part.stl`
+      with a comparison against the scan; `part.stl` opens in 3lay Mac at the same size.
 - [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
       appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
 - [ ] Unsupported (non-LiDAR) device shows the explanation instead of crashing.

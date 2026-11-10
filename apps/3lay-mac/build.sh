@@ -10,6 +10,8 @@ bundle="build/ThreeLayMacOS.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp .build/ThreeLayMacOS "$bundle/Contents/MacOS/ThreeLayMacOS"
 cp convert_usdz.swift "$bundle/Contents/Resources/convert_usdz.swift"
+rm -rf "$bundle/Contents/Resources/skill"
+cp -R skill "$bundle/Contents/Resources/skill"
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

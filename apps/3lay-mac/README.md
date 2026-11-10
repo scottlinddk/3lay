@@ -35,20 +35,25 @@ Detail for printing has to be in the shape, because an STL has no texture. Apple
 
 Object Capture models stand along Y. USDZ scans are turned on import to stand along Z, on the plate.
 
-## Clean rebuild (optional, AI)
+## AI rebuild (optional scan package)
 
-A second path beside the scan, for mechanical parts. Under **Clean rebuild** save an Anthropic API key (kept in the login keychain), say what the object is, and choose **Rebuild as a clean part**. On the phone the same thing is the **Also rebuild as a clean part (AI)** switch on the *Capture complete* screen; it is only accepted when the Mac has a key.
+For mechanical parts there is a second path beside the scan. Step **05 AI rebuild** has **Export scan package…**, which saves a zip for an AI coding agent. 3lay Mac calls no AI service and needs no key; the package is just a file.
 
-How it works (`PartRebuild.swift`):
+```
+<name> scan package/
+  README.md                the prompt to paste, and what the agent needs
+  scan/scan.stl            the scan, millimetres (scale factor applied), Z up, on Z = 0
+  scan/scan.json           3lay-scan-package/1: bounds, your description, the camera of every picture
+  scan/views/*.png         top, front, right and corner, straight on, with mm per pixel in scan.json
+  scan/photos/*.jpg        up to 16 small photos, when the scan was built from photos on this Mac
+  skill/scan-to-part/      SKILL.md and tools/scan_tools.py
+```
 
-1. The Mac draws the scan from the top, front, right and one corner, without perspective (`MeshRender.swift`), and sends those pictures, the measurements and your description to Claude (`claude-opus-5-5`). Photos are not sent.
-2. Claude answers with a tree of simple solids as JSON: box, cylinder, cone, sphere, torus, extruded outline, combined with union, subtract and intersect (`SolidShape.swift`).
-3. The Mac builds that shape, measures it against the scan in both directions (`ShapeFit` in `SolidMesher.swift`) and sends the numbers, the worst places and pictures of the attempt back. Up to three rounds; the closest attempt wins.
-4. The result is a closed mesh in the scan's position. **Scan / Clean part** switches what is on the plate and what **Export placed STL** saves. **Save as OpenSCAD…** writes the same shape as editable source.
+Unzip it, open the folder in an agent that can read files and run commands (Claude Code, for example) and paste the prompt from the README or from **Copy prompt**. The skill (`skill/scan-to-part/SKILL.md` in this directory) has the agent measure the scan, write an OpenSCAD model in the scan's coordinates, build it, and compare it with the scan using `scan_tools.py`: side-by-side pictures from the same cameras, and distances both ways in millimetres. It repeats until the part matches, then hands back `part.scad` and `part.stl`. Open `part.stl` with **Import file**.
 
-What to expect: flat faces, right angles and round holes come out exact where the scan was bumpy, and the mesh is always closed. It is not more accurate than the scan it measures from: a scale error in the scan stays. Sharp edges are rounded by about the mesh grid (the longest side divided by 224); the OpenSCAD file has them sharp. Organic shapes do not fit simple solids, and the reported deviation says so. It costs API usage on your account for each round.
+The agent's machine needs Python 3 with numpy and the `openscad` command. The result is cleaner than the scan, not more accurate than it: sizes come from the scan, so a scale error stays unless you give the agent a measured dimension. Organic shapes do not fit simple solids, and the skill tells the agent to say so and stop.
 
-`RebuildCheck.swift` covers everything except the call to Claude, which has not been run from this repository yet.
+`PackageCheck.swift` writes a package and checks its contents; `./rebuild_check` then runs `scan_tools.py` on it when numpy is installed. The skill has not been run by an agent on a real scan yet.
 
 ## Phone browser handoff
 

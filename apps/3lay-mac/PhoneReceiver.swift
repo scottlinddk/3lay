@@ -18,20 +18,10 @@ final class PhoneReceiver {
     /// The port actually bound. Differs from the requested one only when 0 was requested.
     let port: UInt16
 
-    private var canRebuild = false
-    /// Told to phones in the hello, so they only offer a clean rebuild when the Mac has an API key.
-    var rebuildAvailable: Bool {
-        get { lock.lock(); defer { lock.unlock() }; return canRebuild }
-        set { lock.lock(); canRebuild = newValue; lock.unlock() }
-    }
-
     var code: String {
         get { lock.lock(); defer { lock.unlock() }; return currentCode }
         set { lock.lock(); currentCode = newValue; failedAttempts = 0; lockedUntil = .distantPast; lock.unlock() }
     }
-
-    /// Where the phone's description of a received scan is kept until the scan is opened.
-    static func noteFile(for file: URL) -> URL { file.appendingPathExtension("note") }
 
     /// Where received scans are saved. Not the working directory: a Finder-launched app starts in `/`.
     static var defaultInbox: URL {
@@ -185,7 +175,7 @@ final class PhoneReceiver {
             case "/":
                 respond(fd, "200 OK", "text/html; charset=utf-8", Data(PhoneReceiver.uploadPage.utf8))
             case LanProtocol.helloPath:
-                let body = (try? JSONEncoder().encode(LanHello(name: helloName, rebuild: rebuildAvailable))) ?? Data()
+                let body = (try? JSONEncoder().encode(LanHello(name: helloName))) ?? Data()
                 respond(fd, "200 OK", "application/json", body)
             case LanProtocol.authPath:
                 if let failure = authorize(components, headerLines) { respond(fd, failure.status, "text/plain", Data(failure.message.utf8)) }
@@ -233,10 +223,6 @@ final class PhoneReceiver {
             }
             try stream.close()
             try FileManager.default.moveItem(at: temporary, to: file)
-            // The phone's description of the object travels as a query item and is kept beside the file.
-            if let note = components.queryItems?.first(where: { $0.name == LanProtocol.noteQuery })?.value, !note.isEmpty {
-                try? String(note.prefix(LanProtocol.maxNoteLength)).write(to: PhoneReceiver.noteFile(for: file), atomically: true, encoding: .utf8)
-            }
             respond(fd, "200 OK", "text/plain", Data("Scan received".utf8))
             onFile(file)
         } catch { respond(fd, "500 Internal Server Error", "text/plain", Data("Could not save scan".utf8)) }

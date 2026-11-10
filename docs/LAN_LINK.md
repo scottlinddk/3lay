@@ -23,11 +23,6 @@ change them there and update this page in the same commit.
      `photos/NNNN.jpg` with a camera pose and intrinsics each. The Mac imports the mesh and keeps the
      photos. Only offered when `/api/hello` reports `supportsLidarBundles`; an older Mac would treat the
      zip as photos and fail.
-   - **Also rebuild as a clean part (AI)** (optional, with either of the two above): the file name gets
-     `.rebuild` before its extension (`<name>.rebuild.zip`, `<name>.rebuild.usdz`) and the user's
-     description goes in the `note` query item. The Mac imports the scan as usual, then runs the clean
-     rebuild (see `apps/3lay-mac/README.md`). Only sent when `/api/hello` reports `supportsRebuild: true`,
-     which means the Mac has an Anthropic API key saved.
    - **Build on this phone, then send**: the phone reconstructs a reduced USDZ and `PUT`s that.
 5. 3lay Mac saves the file in `~/Library/Application Support/3lay Mac/inbox/`, converts USDZ to
    STL (`convert_usdz.swift`) and opens it on the plate.
@@ -40,9 +35,9 @@ such as `192.168.1.20` or `studio.local`, shown in 3lay Mac under **Import a sca
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /` | none | Browser upload page (STL, OBJ, ASCII PLY, USDZ). |
-| `GET /api/hello` | none | `{service:"threelaymacos", version, name, maxBytes, extensions, maxCaptureBytes?, supportsLidarBundles?, supportsRebuild?}`. Never contains the code. `maxCaptureBytes` is absent on a Mac that cannot build from photos, `supportsLidarBundles` on one that cannot import `*.lidar.zip`. `supportsRebuild` is true only while the Mac has an API key for the clean rebuild. |
+| `GET /api/hello` | none | `{service:"threelaymacos", version, name, maxBytes, extensions, maxCaptureBytes?, supportsLidarBundles?}`. Never contains the code. `maxCaptureBytes` is absent on a Mac that cannot build from photos, `supportsLidarBundles` on one that cannot import `*.lidar.zip`. |
 | `GET /api/auth` | code | 200 if the code is right. Used to validate a typed code. |
-| `PUT /upload/<url-encoded filename>[?note=<text>]` | code | Raw file bytes, `Content-Length` required. 100 MB max for meshes, 2 GB for a `.zip` of photos. 200 when saved. |
+| `PUT /upload/<url-encoded filename>` | code | Raw file bytes, `Content-Length` required. 100 MB max for meshes, 2 GB for a `.zip` of photos. 200 when saved. |
 
 The code is sent as `Authorization: Bearer <code>` (iOS) or `?code=` (browser page). Errors:
 `403` wrong code, `429` locked, `411` no length, `413` too large, `415` wrong file type.

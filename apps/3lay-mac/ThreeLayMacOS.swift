@@ -25,19 +25,10 @@ struct CloudItem: Identifiable {
     @Published var path = ""
     /// Build photo scans with the larger triangle budget. Slower and memory hungry, off by default.
     @Published var maximumDetail = false
-    // Clean rebuild (optional, AI). `mesh` is whichever of the two is on the plate.
-    @Published private(set) var scanMesh: Mesh?
-    @Published private(set) var rebuiltMesh: Mesh?
-    @Published private(set) var showingRebuilt = false
-    @Published private(set) var rebuilding = false
-    @Published private(set) var rebuildStatus = ""
-    @Published private(set) var hasApiKey = ApiKeyStore.load() != nil
-    /// What the object is, in the user's words. Sent to Claude with the pictures of the scan.
-    @Published var rebuildNote = ""
-    @Published var apiKeyEntry = ""
-    private var rebuiltShape: SolidShape?
-    /// The phone asked for a rebuild of the scan now arriving.
-    private var rebuildRequested = false
+    /// What the object is, in the user's words. Goes into an exported scan package.
+    @Published var packageNote = ""
+    /// Small copies of the photos the scan on the plate was built from, when there are any.
+    @Published private(set) var scanPhotos: URL?
     @Published var pairingLink = ""
     @Published var cloudItems: [CloudItem] = []
     @Published var phoneStatus = ""
@@ -72,7 +63,6 @@ struct CloudItem: Identifiable {
             // Bonjour tells phones the real port, so a busy 8765 (second copy, other app) is not fatal.
             let receiver = try (try? PhoneReceiver(code: code, onFile: onFile)) ?? PhoneReceiver(code: code, port: 0, onFile: onFile)
             phone = receiver
-            receiver.rebuildAvailable = hasApiKey
             port = receiver.port
             phoneStatus = "Ready on local Wi-Fi"
             let advertiser = LanAdvertiser(port: receiver.port)
@@ -84,22 +74,13 @@ struct CloudItem: Identifiable {
 
     /// A file that arrived from the phone. USDZ is converted to STL first, off the main thread.
     func receive(_ url: URL) {
-        rebuildRequested = LanProtocol.wantsRebuild(url.lastPathComponent)
-        let noteFile = PhoneReceiver.noteFile(for: url)
-        if let note = try? String(contentsOf: noteFile, encoding: .utf8) {
-            if rebuildRequested { rebuildNote = note }
-            try? FileManager.default.removeItem(at: noteFile)
-        }
         // Check the LiDAR bundle first: it is a zip too.
         if LanProtocol.isLidarBundle(url.lastPathComponent) { importLidar(archive: url); return }
         if LanProtocol.isCaptureArchive(url.lastPathComponent) { reconstruct(archive: url); return }
         guard url.pathExtension.lowercased() == "usdz" else { importFile(url); return }
         status = "Converting \(url.lastPathComponent)…"
         Task {
-            do { importFile(try await UsdzConverter.convert(url), unitScale: Mesh.metresToMillimetres, yUp: true) } catch {
-                rebuildRequested = false
-                status = "Phone import failed: \(error.localizedDescription)"
-            }
+            do { importFile(try await UsdzConverter.convert(url), unitScale: Mesh.metresToMillimetres, yUp: true) } catch { status = "Phone import failed: \(error.localizedDescription)" }
         }
     }
 
@@ -130,6 +111,7 @@ struct CloudItem: Identifiable {
                 let stl = try await UsdzConverter.convert(built.url)
                 try? FileManager.default.removeItem(at: archive)  // photos can be hundreds of MB
                 importFile(stl, unitScale: Mesh.metresToMillimetres, yUp: true)
+                if status.hasPrefix("Imported") { scanPhotos = built.photos }
                 // Say which level this really is: a failed higher level falls back silently otherwise.
                 if status.hasPrefix("Imported") {
                     let q = built.quality
@@ -137,10 +119,7 @@ struct CloudItem: Identifiable {
                     status += " · \(q.kept) photos" + (q.droppedBlurry > 0 ? " (\(q.droppedBlurry) blurry set aside)" : "")
                     status += q.withDepth > 0 ? " · LiDAR depth in \(q.withDepth) of \(q.total)" : " · no LiDAR depth found"
                 }
-            } catch {
-                rebuildRequested = false
-                status = "Photo import failed: \(error.localizedDescription)"
-            }
+            } catch { status = "Photo import failed: \(error.localizedDescription)" }
         }
     }
 
@@ -153,99 +132,14 @@ struct CloudItem: Identifiable {
         do {
             let imported = try Mesh.load(url, unitScale: unitScale, yUp: yUp)
             mesh = imported
-            scanMesh = imported
-            rebuiltMesh = nil
-            rebuiltShape = nil
-            showingRebuilt = false
-            rebuildStatus = ""
+            scanPhotos = nil
             selection = 1
             scale = 1
             path = url.path
             let size = Swift.max(imported.bounds.x, imported.bounds.y, imported.bounds.z)
             status = "Imported \(imported.name) · \(imported.faces.count) triangles"
             if size < 2 { status += " · only \(String(format: "%.2f", Double(size))) units across, probably metres: raise the scale factor" }
-            if rebuildRequested {
-                rebuildRequested = false
-                rebuildPart()
-            }
-        } catch {
-            rebuildRequested = false
-            status = "Import failed: \(error.localizedDescription)"
-        }
-    }
-
-    // MARK: Clean rebuild (optional, AI)
-
-    func saveApiKey() {
-        let key = apiKeyEntry.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
-        do {
-            try ApiKeyStore.save(key)
-            apiKeyEntry = ""
-            hasApiKey = true
-            phone?.rebuildAvailable = true
-            rebuildStatus = ""
-        } catch { rebuildStatus = error.localizedDescription }
-    }
-
-    func removeApiKey() {
-        ApiKeyStore.clear()
-        hasApiKey = false
-        phone?.rebuildAvailable = false
-    }
-
-    /// Asks Claude to rewrite the scan on the plate as a clean part. The scan itself is kept, and
-    /// `showRebuilt` switches between the two.
-    func rebuildPart() {
-        guard !rebuilding, let scan = scanMesh else { return }
-        selection = 4
-        guard let key = ApiKeyStore.load() else {
-            rebuildStatus = "Save an Anthropic API key here first, then choose Rebuild as a clean part."
-            return
-        }
-        rebuilding = true
-        let note = rebuildNote
-        Task {
-            do {
-                let outcome = try await PartRebuild.run(scan: scan, note: note, apiKey: key) { line in
-                    DispatchQueue.main.async { if self.rebuilding { self.rebuildStatus = line; self.status = line } }
-                }
-                rebuilding = false
-                rebuiltMesh = outcome.mesh
-                rebuiltShape = outcome.shape
-                showRebuilt(true)
-                let size = Swift.max(scan.bounds.x, scan.bounds.y, scan.bounds.z)
-                var line = String(format: "Clean part ready after %d of %d rounds. The scan is on average %.2f mm from it (95%% within %.2f mm).",
-                                  outcome.rounds, PartRebuild.defaultRounds, Double(outcome.fit.meanScanToModel), Double(outcome.fit.p95ScanToModel))
-                if outcome.fit.meanScanToModel > size * 0.02 {
-                    line += " That is a poor match: this object is probably not made of simple shapes. Keep the scan."
-                }
-                if !outcome.notes.isEmpty { line += " Claude's notes: \(outcome.notes)" }
-                rebuildStatus = line
-                status = "Clean part on the plate · \(outcome.mesh.faces.count) triangles"
-            } catch {
-                rebuilding = false
-                rebuildStatus = "Clean rebuild failed: \(error.localizedDescription)"
-                status = rebuildStatus
-            }
-        }
-    }
-
-    func showRebuilt(_ on: Bool) {
-        showingRebuilt = on && rebuiltMesh != nil
-        mesh = showingRebuilt ? rebuiltMesh : scanMesh
-    }
-
-    /// The clean part as OpenSCAD source: every size is a number that can be edited by hand.
-    func exportSCAD() {
-        guard let shape = rebuiltShape else { return }
-        let save = NSSavePanel()
-        save.nameFieldStringValue = "clean-part.scad"
-        guard save.runModal() == .OK, let url = save.url else { return }
-        do {
-            try shape.openSCAD().write(to: url, atomically: true, encoding: .utf8)
-            status = "Exported \(url.path)"
-        } catch { status = "Export failed: \(error.localizedDescription)" }
+        } catch { status = "Import failed: \(error.localizedDescription)" }
     }
 
     func exportSTL() {
@@ -258,6 +152,29 @@ struct CloudItem: Identifiable {
             try mesh.saveSTL(url, scale: Float(scale), angle: Float(angle))
             status = "Exported \(url.path)"
         } catch { status = "Export failed: \(error.localizedDescription)" }
+    }
+
+    /// Saves the scan on the plate as a zip for an AI coding agent, with the skill that tells it how
+    /// to rebuild the scan as a clean part. The current scale factor is applied; rotation is not.
+    func exportPackage() {
+        guard let mesh else { return }
+        guard let skill = ScanPackage.bundledSkill else { status = "Export failed: the scan-to-part skill is missing from the app"; return }
+        let stem = (mesh.name as NSString).deletingPathExtension
+        let save = NSSavePanel()
+        save.nameFieldStringValue = "\(stem.isEmpty ? "Scan" : stem) scan package.zip"
+        save.allowedContentTypes = [.zip]
+        guard save.runModal() == .OK, let url = save.url else { return }
+        var scaled = mesh
+        scaled.vertices = mesh.vertices.map { $0 * Float(scale) }
+        scaled.bounds = mesh.bounds * Float(scale)
+        let note = packageNote, photos = scanPhotos
+        status = "Writing scan package…"
+        Task {
+            do {
+                try await ScanPackage.write(mesh: scaled, note: note, photos: photos, skill: skill, to: url)
+                status = "Exported \(url.path)"
+            } catch { status = "Export failed: \(error.localizedDescription)" }
+        }
     }
 
     private func pairing() throws -> (URL, String) {
@@ -332,7 +249,7 @@ struct CloudItem: Identifiable {
 struct ThreeLayMacOSView: View {
     @StateObject private var state = ScanState()
     @State private var importing = false
-    private let steps = [("01", "Bring in a scan", "Phone or file"), ("02", "Check size", "Confirm millimetres"), ("03", "Place on plate", "Rotate and inspect"), ("04", "Next steps", "Export and slice"), ("05", "Clean rebuild", "Optional, uses AI")]
+    private let steps = [("01", "Bring in a scan", "Phone or file"), ("02", "Check size", "Confirm millimetres"), ("03", "Place on plate", "Rotate and inspect"), ("04", "Next steps", "Export and slice"), ("05", "AI rebuild", "Optional scan package")]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -446,35 +363,22 @@ struct ThreeLayMacOSView: View {
             section("PLATE PREVIEW")
             Text("256 × 256 mm visual guide. Confirm the actual printer profile before slicing.").font(.caption).foregroundStyle(.secondary)
         case 4:
-            Text("Clean rebuild").font(.title2.bold())
-            Text("Optional. Claude looks at the scan and rewrites it as a clean part made of simple solids: flat faces, round holes, a closed mesh. Good for mechanical parts. For figurines and other organic shapes the scan is the better model.").foregroundStyle(.secondary)
-            section("ANTHROPIC API KEY")
-            if state.hasApiKey {
-                Text("A key is saved in your keychain.").font(.caption)
-                Button("Remove key") { state.removeApiKey() }
-            } else {
-                SecureField("sk-ant-…", text: $state.apiKeyEntry)
-                Button("Save key") { state.saveApiKey() }.disabled(state.apiKeyEntry.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            Text("This uses your own Anthropic account and is billed to it. Shaded pictures of the scan's shape, its measurements and your description are sent to Anthropic. Photos are not sent.").font(.caption).foregroundStyle(.secondary)
+            Text("AI rebuild").font(.title2.bold())
+            Text("Optional. Export the scan as a package for an AI coding agent, which rebuilds it as a clean, editable part: flat faces, round holes, exact dimensions. Good for mechanical parts. A figurine or anything sculpted is better printed from the scan.").foregroundStyle(.secondary)
             section("WHAT IS IT?")
-            TextField("For example: wall bracket with two screw holes", text: $state.rebuildNote)
-            Button(state.rebuilding ? "Rebuilding…" : "Rebuild as a clean part") { state.rebuildPart() }
-                .buttonStyle(.borderedProminent).tint(accent)
-                .disabled(state.rebuilding || state.scanMesh == nil || !state.hasApiKey)
-            if state.scanMesh == nil { Text("Import a scan first.").font(.caption).foregroundStyle(.secondary) }
-            if state.rebuilding { ProgressView().controlSize(.small) }
-            if !state.rebuildStatus.isEmpty { Text(state.rebuildStatus).font(.caption) }
-            if state.rebuiltMesh != nil {
-                section("ON THE PLATE")
-                Picker("On the plate", selection: Binding(get: { state.showingRebuilt }, set: { state.showRebuilt($0) })) {
-                    Text("Scan").tag(false)
-                    Text("Clean part").tag(true)
-                }.pickerStyle(.segmented).labelsHidden()
-                Text("Export placed STL under Next steps saves the one shown here.").font(.caption).foregroundStyle(.secondary)
-                Button("Save as OpenSCAD…") { state.exportSCAD() }
-                Text("An editable source file with every size as a number. It is in the scan's own position and size, without the scale factor or rotation.").font(.caption).foregroundStyle(.secondary)
+            TextField("For example: wall bracket with two screw holes", text: $state.packageNote)
+            Button("Export scan package…") { state.exportPackage() }.buttonStyle(.borderedProminent).tint(accent).disabled(state.mesh == nil)
+            if state.mesh == nil { Text("Import a scan first.").font(.caption).foregroundStyle(.secondary) }
+            section("IN THE ZIP")
+            Text("The scan as STL in millimetres, pictures of it from four sides with their scale, its measurements\(state.scanPhotos == nil ? "" : ", 16 or fewer of the photos"), and the scan-to-part skill with a tool the agent uses to compare its part with the scan.").font(.caption).foregroundStyle(.secondary)
+            section("THEN")
+            Text("Unzip it, open the folder in an agent such as Claude Code, and paste this prompt:").font(.caption).foregroundStyle(.secondary)
+            Text(ScanPackage.prompt(note: state.packageNote.trimmingCharacters(in: .whitespacesAndNewlines))).font(.caption).textSelection(.enabled)
+            Button("Copy prompt") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(ScanPackage.prompt(note: state.packageNote.trimmingCharacters(in: .whitespacesAndNewlines)), forType: .string)
             }
+            Text("The agent hands back part.scad and part.stl. Open part.stl here with Import file. 3lay Mac sends nothing anywhere: the package is just a file.").font(.caption).foregroundStyle(.secondary)
         default:
             Text("Next steps").font(.title2.bold())
             Text("Review the size and orientation, then open the source mesh in a slicer to choose printer and material settings.").foregroundStyle(.secondary)

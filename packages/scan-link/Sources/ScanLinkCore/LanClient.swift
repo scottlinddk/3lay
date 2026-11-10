@@ -106,14 +106,13 @@ public struct LanClient {
     }
 
     /// Streams `file` to the Mac. `filename` is what the Mac saves it as (default: the file's name).
-    /// `note` is the user's description of the object, used when the name asks for a clean rebuild.
-    public func upload(file: URL, as filename: String? = nil, note: String? = nil) async throws {
+    public func upload(file: URL, as filename: String? = nil) async throws {
         let name = filename ?? file.lastPathComponent
         guard LanProtocol.isAcceptedUpload(name) else { throw LanError.unsupportedType }
         let limit = LanProtocol.maxBytes(for: name)
         let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
         guard size <= limit else { throw LanError.tooLarge(maxBytes: limit) }
-        var request = authorized(try url(LanProtocol.uploadPath(for: name, note: note)), method: "PUT")
+        var request = authorized(try url(LanProtocol.uploadPath(for: name)), method: "PUT")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let (data, status) = try await perform(request, file: file)
         try check(status: status, body: data, maxBytes: limit)

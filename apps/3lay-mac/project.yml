@@ -20,15 +20,17 @@ targets:
       - PhotoReconstruction.swift
       - PhotoQuality.swift
       - LidarImport.swift
-      - SolidShape.swift
-      - SolidMesher.swift
       - MeshRender.swift
-      - PartRebuild.swift
+      - ScanPackage.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift
       # Run by UsdzConverter through /usr/bin/swift, so copy it, never compile it (top-level code).
       - path: convert_usdz.swift
+        buildPhase: resources
+      # The scan-to-part skill that goes into every exported scan package.
+      - path: skill
+        type: folder
         buildPhase: resources
     dependencies:
       - package: ScanLink
