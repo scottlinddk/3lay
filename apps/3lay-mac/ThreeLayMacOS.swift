@@ -23,6 +23,8 @@ struct CloudItem: Identifiable {
     @Published var angle: Double = 0
     @Published var status = "Ready for a scan"
     @Published var path = ""
+    /// Try Object Capture's unprocessed `.raw` level first. Slow and memory hungry, off by default.
+    @Published var maximumDetail = false
     @Published var pairingLink = ""
     @Published var cloudItems: [CloudItem] = []
     @Published var phoneStatus = ""
@@ -82,13 +84,15 @@ struct CloudItem: Identifiable {
         status = "Unpacking photos…"
         Task {
             do {
-                let usdz = try await PhotoReconstruction.run(archive: archive) { fraction in
+                let built = try await PhotoReconstruction.run(archive: archive, useRaw: maximumDetail) { fraction in
                     DispatchQueue.main.async { self.status = "Building model from photos… \(Int(fraction * 100))%" }
                 }
                 status = "Converting model…"
-                let stl = try await UsdzConverter.convert(usdz)
+                let stl = try await UsdzConverter.convert(built.url)
                 try? FileManager.default.removeItem(at: archive)  // photos can be hundreds of MB
                 importFile(stl, unitScale: Mesh.metresToMillimetres)
+                // Say which level this really is: a failed higher level falls back silently otherwise.
+                if status.hasPrefix("Imported") { status += " · \(built.detail) detail" + (built.fallbackNote.map { " (\($0))" } ?? "") }
             } catch { status = "Photo import failed: \(error.localizedDescription)" }
         }
     }
@@ -264,6 +268,8 @@ struct ThreeLayMacOSView: View {
             section("ON YOUR PHONE")
             Text("Open the 3lay iOS app, choose Nearby Mac, pick this Mac and enter the code. Then scan an object and send it here.").font(.caption).foregroundStyle(.secondary)
             Text("Pairing code  \(state.code)").font(.headline).foregroundStyle(accent)
+            Toggle("Maximum detail (raw)", isOn: $state.maximumDetail)
+            Text("Tries Apple's highest, unprocessed level for photos sent from the phone. Much slower and needs a lot of memory and disk; it falls back to Full, then Medium, and the status line says which was used.").font(.caption).foregroundStyle(.secondary)
             Button("New code") { state.rotateCode() }
             Text("A new code disconnects phones that used the old one.").font(.caption).foregroundStyle(.secondary)
             Text("No Mac in the list? Type this address on the phone, or open it in the phone's browser:").font(.caption).foregroundStyle(.secondary).padding(.top, 8)

@@ -5,9 +5,18 @@ import RealityKit
 /// (`PhotogrammetrySession`). Needs a Mac with enough GPU memory; older Macs report that
 /// through `PhotogrammetrySession.isSupported`.
 enum PhotoReconstruction {
+    /// The model and the detail level it was really built at, which can be lower than requested.
+    struct Built {
+        let url: URL
+        let detail: String
+        /// Set when a higher level failed first, so the user knows why the model is coarser.
+        let fallbackNote: String?
+    }
+
     /// `archive` is a zip containing a folder of photos (HEIC, JPG or PNG). Returns the model's URL,
-    /// next to the archive. `progress` gets 0...1.
-    static func run(archive: URL, progress: @escaping (Double) -> Void) async throws -> URL {
+    /// next to the archive. `progress` gets 0...1. `useRaw` tries Apple's unprocessed `.raw` level
+    /// first (up to ~30M triangles, so it needs a lot of memory and disk).
+    static func run(archive: URL, useRaw: Bool = false, progress: @escaping (Double) -> Void) async throws -> Built {
         guard PhotogrammetrySession.isSupported else {
             throw ScanError.message("This Mac cannot build models from photos. Build on the phone instead.")
         }
@@ -19,12 +28,15 @@ enum PhotoReconstruction {
         try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
         // Most detail first. `.full` needs a lot of memory, so a failure drops one level and tries again.
-        let levels: [PhotogrammetrySession.Request.Detail] = [.full, .medium]
-        for (index, detail) in levels.enumerated() {
+        var levels: [(PhotogrammetrySession.Request.Detail, String)] = [(.full, "Full"), (.medium, "Medium")]
+        if useRaw { levels.insert((.raw, "Raw"), at: 0) }
+        var note: String?
+        for (index, level) in levels.enumerated() {
             do {
-                try await build(photos: photos, output: output, detail: detail, progress: progress)
-                return output
-            } catch is ScanError where index < levels.count - 1 {
+                try await build(photos: photos, output: output, detail: level.0, progress: progress)
+                return Built(url: output, detail: level.1, fallbackNote: note)
+            } catch let error as ScanError where index < levels.count - 1 {
+                note = "\(level.1) failed (\(error.localizedDescription))"
                 try? FileManager.default.removeItem(at: output)
                 continue
             }
