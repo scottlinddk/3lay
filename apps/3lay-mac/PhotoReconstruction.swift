@@ -9,6 +9,8 @@ enum PhotoReconstruction {
     struct Built {
         let url: URL
         let detail: String
+        /// Photos used, blurry ones set aside, and how many carry LiDAR depth.
+        let quality: PhotoQuality.Report
         /// Set when a higher level failed first, so the user knows why the model is coarser.
         let fallbackNote: String?
     }
@@ -24,6 +26,12 @@ enum PhotoReconstruction {
         defer { try? FileManager.default.removeItem(at: work) }
         try await unzip(archive, to: work)
         let photos = try photoFolder(in: work)
+        // Blurry frames soften the model, so set the worst aside before Object Capture reads the folder.
+        let rejected = archive.deletingLastPathComponent().appending(path: "rejected-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: rejected) }
+        let quality = try await Task.detached(priority: .userInitiated) {
+            try PhotoQuality.filter(photos: photos, rejected: rejected)
+        }.value
         let output = archive.deletingPathExtension().appendingPathExtension("usdz")
         try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
@@ -34,7 +42,7 @@ enum PhotoReconstruction {
         for (index, level) in levels.enumerated() {
             do {
                 try await build(photos: photos, output: output, detail: level.0, progress: progress)
-                return Built(url: output, detail: level.1, fallbackNote: note)
+                return Built(url: output, detail: level.1, quality: quality, fallbackNote: note)
             } catch let error as ScanError where index < levels.count - 1 {
                 note = "\(level.1) failed (\(error.localizedDescription))"
                 try? FileManager.default.removeItem(at: output)

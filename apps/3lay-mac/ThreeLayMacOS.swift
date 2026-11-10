@@ -92,7 +92,12 @@ struct CloudItem: Identifiable {
                 try? FileManager.default.removeItem(at: archive)  // photos can be hundreds of MB
                 importFile(stl, unitScale: Mesh.metresToMillimetres)
                 // Say which level this really is: a failed higher level falls back silently otherwise.
-                if status.hasPrefix("Imported") { status += " · \(built.detail) detail" + (built.fallbackNote.map { " (\($0))" } ?? "") }
+                if status.hasPrefix("Imported") {
+                    let q = built.quality
+                    status += " · \(built.detail) detail" + (built.fallbackNote.map { " (\($0))" } ?? "")
+                    status += " · \(q.kept) photos" + (q.droppedBlurry > 0 ? " (\(q.droppedBlurry) blurry set aside)" : "")
+                    status += q.withDepth > 0 ? " · LiDAR depth in \(q.withDepth) of \(q.total)" : " · no LiDAR depth found"
+                }
             } catch { status = "Photo import failed: \(error.localizedDescription)" }
         }
     }

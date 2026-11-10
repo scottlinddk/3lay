@@ -18,6 +18,7 @@ targets:
       - Mesh.swift
       - UsdzConverter.swift
       - PhotoReconstruction.swift
+      - PhotoQuality.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift
