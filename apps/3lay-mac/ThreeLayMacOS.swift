@@ -122,6 +122,19 @@ struct CloudItem: Identifiable {
         } catch { status = "Export failed: \(error.localizedDescription)" }
     }
 
+    /// 3MF states its unit (millimetres), so Bambu Studio and other slicers open it at the right size.
+    func export3MF() {
+        guard let mesh else { return }
+        let save = NSSavePanel()
+        save.nameFieldStringValue = "placed-scan.3mf"
+        save.allowedContentTypes = [UTType(filenameExtension: "3mf")!]
+        guard save.runModal() == .OK, let url = save.url else { return }
+        do {
+            try mesh.save3MF(url, scale: Float(scale), angle: Float(angle))
+            status = "Exported \(url.path)"
+        } catch { status = "Export failed: \(error.localizedDescription)" }
+    }
+
     private func pairing() throws -> (URL, String) {
         guard let link = URLComponents(string: pairingLink.trimmingCharacters(in: .whitespacesAndNewlines)),
               link.scheme == "scan3d", link.host == "pair",
@@ -309,9 +322,10 @@ struct ThreeLayMacOSView: View {
             Text("Review the size and orientation, then open the source mesh in a slicer to choose printer and material settings.").foregroundStyle(.secondary)
             if let mesh = state.mesh {
                 Text("Loaded: \(mesh.name)")
-                Button("Export placed STL") { state.exportSTL() }.buttonStyle(.borderedProminent).tint(accent)
+                Button("Export placed 3MF (for Bambu Studio)") { state.export3MF() }.buttonStyle(.borderedProminent).tint(accent)
+                Button("Export placed STL") { state.exportSTL() }
             }
-            Text("Exported STL carries no unit metadata. Mesh repair and slicing are not yet included.").font(.caption).foregroundStyle(.secondary)
+            Text("3MF carries its unit (millimetres); STL does not. Both hold geometry only: choose printer and filament, and slice, in your slicer. Mesh repair is not included.").font(.caption).foregroundStyle(.secondary)
         }
     }
     private func section(_ title: String) -> some View { Text(title).font(.caption.bold()).foregroundStyle(.secondary).padding(.top, 16) }

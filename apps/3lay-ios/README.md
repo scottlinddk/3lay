@@ -21,6 +21,12 @@ pairs with the six-digit code the Mac shows, then **Send to <Mac>** reconstructs
 sends the USDZ straight to it. The shared contract is `packages/scan-link`, explained in
 `docs/LAN_LINK.md`. Plain HTTP, local network only. The server device token is not used here.
 
+## Preview on the phone
+
+**Build on this phone and preview** reconstructs a reduced-detail USDZ and opens it in AR Quick Look
+(`ModelPreview.swift`): turn and zoom it, or place it on a table. **Send to <Mac>** from there reuses
+that USDZ. A model the Mac builds from photos is not sent back to the phone yet.
+
 ## Flow (server mode)
 
 1. Capture with `ObjectCaptureSession` (needs LiDAR; checked at runtime, not by model name).
@@ -52,6 +58,8 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 - [ ] 30+ photo set uploads fully and the Mac worker reconstructs it.
 - [ ] On-device reconstruction finishes on the target device without being killed for memory.
 - [ ] Measure the result against the object: sensor scale is provenance, not a guarantee.
+
+- [ ] Build on this phone and preview: the model appears in Quick Look, Done returns to "Capture complete", Send to Mac does not rebuild.
 
 ## CI and TestFlight (#34)
 

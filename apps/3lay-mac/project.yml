@@ -16,6 +16,7 @@ targets:
     platform: macOS
     sources:
       - Mesh.swift
+      - ThreeMF.swift
       - UsdzConverter.swift
       - PhotoReconstruction.swift
       - LanAdvertiser.swift
