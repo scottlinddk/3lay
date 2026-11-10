@@ -139,6 +139,28 @@ final class CaptureKitTests: XCTestCase {
         XCTAssertEqual((task["input_revision"] as? String)?.count, 16)
     }
 
+    func testManyPhotosUploadTogetherButKeepTheirOrder() async throws {
+        let server = FakeServer()
+        let (up, api) = uploader(server)
+        let dir = try makeTempDir()
+        let names = (1...12).map { String(format: "IMG_%02d.heic", $0) }
+        for (i, name) in names.enumerated() { _ = try writeFile(dir, name, bytes: 120 + i, seed: UInt8(i)) }
+        var progress: [Int] = []
+        let result = try await Submission(api: api, uploader: up).submit(
+            name: "many", imagesDirectory: dir, device: device, onProgress: { d, _ in progress.append(d) })
+        XCTAssertEqual(result.photoCount, 12)
+        XCTAssertEqual(progress, Array(1...13))  // counts finished uploads, never goes backwards
+        XCTAssertEqual(server.uploads.count, 13)  // 12 photos and the manifest, none sent twice
+        let payload = try XCTUnwrap(server.tasks.first?["payload"] as? [String: Any])
+        let photos = try XCTUnwrap(payload["photos"] as? [[String: String]])
+        XCTAssertEqual(photos.map { $0["filename"]! }, names)
+        // Each reference points at the artifact stored for that very file.
+        for photo in photos {
+            let artifact = try XCTUnwrap(server.artifacts.first { $0["id"] as? String == photo["artifact_id"] })
+            XCTAssertEqual(artifact["filename"] as? String, photo["filename"])
+        }
+    }
+
     func testResubmitReusesJobAndDoesNotReuploadFinishedFiles() async throws {
         let server = FakeServer()
         let (up, api) = uploader(server)

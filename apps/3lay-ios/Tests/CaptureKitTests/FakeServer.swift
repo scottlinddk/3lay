@@ -18,7 +18,16 @@ final class FakeServer: HTTPTransport {
 
     struct Dropped: Error {}
 
+    /// Submission uploads several files at once, so one request is handled at a time, like a server would.
+    private let lock = NSLock()
+
     func send(_ r: HTTPRequest) async throws -> HTTPResponse {
+        try respond(r)
+    }
+
+    private func respond(_ r: HTTPRequest) throws -> HTTPResponse {
+        lock.lock()
+        defer { lock.unlock() }
         requests.append("\(r.method) \(r.path)")
         try beforeRequest?(r)
         let res = handle(r)
