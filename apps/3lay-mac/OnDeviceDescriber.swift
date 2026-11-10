@@ -6,12 +6,13 @@ import simd
 @_weakLinked import FoundationModels
 #endif
 
-/// Optional help from Apple's on-device model (Apple Intelligence, macOS 26 or later): looks at the scan
-/// and suggests a one-line description and whether the object is made of simple shapes.
+/// Optional help from Apple's on-device model (Apple Intelligence, macOS 26 or later): reads measurements
+/// of the scan and guesses what the object is and whether it is made of simple shapes.
 ///
-/// This is deliberately all it does. A rebuild is a loop of measuring, modelling and comparing over many
-/// rounds with several pictures, which a small on-device model with a small context cannot do well;
-/// that part belongs to the agent that reads the scan package. Nothing leaves the Mac.
+/// The model gets numbers, not pictures. Image prompts exist only in the newest SDK and on the newest
+/// on-device model, and the text form works on every macOS 26. A rebuild is a loop of measuring, modelling
+/// and comparing over many rounds, which a small on-device model with a small context cannot do well; that
+/// belongs to the agent that reads the scan package. Nothing leaves the Mac.
 enum OnDeviceDescriber {
     enum Suitability: String {
         case mechanical, mixed, organic
@@ -28,6 +29,43 @@ enum OnDeviceDescriber {
     struct Suggestion {
         let summary: String
         let suitability: Suitability
+        /// Share of the surface that is flat and lined up with the X, Y or Z axis. A measurement, not a guess.
+        let flatShare: Float
+    }
+
+    /// What the model is told about the scan.
+    struct Facts {
+        let size: SIMD3<Float>
+        let triangles: Int
+        let flatShare: Float
+
+        var text: String {
+            func mm(_ v: Float) -> String { String(format: "%.1f", Double(v)) }
+            let longest = Swift.max(size.x, size.y, size.z), shortest = Swift.max(Swift.min(size.x, size.y, size.z), 0.001)
+            return """
+                Size: \(mm(size.x)) x \(mm(size.y)) x \(mm(size.z)) mm (width x depth x height), longest side \(String(format: "%.1f", Double(longest / shortest))) times the shortest.
+                \(Int((flatShare * 100).rounded()))% of the surface is flat and faces along one of the three axes.
+                The scan has \(triangles) triangles.
+                """
+        }
+    }
+
+    /// Area-weighted share of the surface whose normal is within about 10 degrees of an axis.
+    static func flatShare(of mesh: Mesh) -> Float {
+        var aligned: Double = 0, total: Double = 0
+        for face in mesh.faces {
+            guard face.x >= 0, face.y >= 0, face.z >= 0, face.x < mesh.vertices.count, face.y < mesh.vertices.count, face.z < mesh.vertices.count else { continue }
+            let normal = simd_cross(mesh.vertices[face.y] - mesh.vertices[face.x], mesh.vertices[face.z] - mesh.vertices[face.x])
+            let length = simd_length(normal)
+            guard length > 0 else { continue }
+            total += Double(length)
+            if simd_reduce_max(simd_abs(normal)) / length > 0.985 { aligned += Double(length) }
+        }
+        return total > 0 ? Float(aligned / total) : 0
+    }
+
+    static func facts(of mesh: Mesh) -> Facts {
+        Facts(size: mesh.bounds, triangles: mesh.faces.count, flatShare: flatShare(of: mesh))
     }
 
     /// Why the on-device model cannot be used here, or nil when it can.
@@ -39,8 +77,9 @@ enum OnDeviceDescriber {
     }
 
     static func describe(mesh: Mesh) async throws -> Suggestion {
+        let facts = await Task.detached(priority: .userInitiated) { facts(of: mesh) }.value
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) { return try await Engine.describe(mesh: mesh) }
+        if #available(macOS 26.0, *) { return try await Engine.describe(facts: facts) }
         #endif
         throw ScanError.message("Needs macOS 26 or later with Apple Intelligence.")
     }
@@ -49,17 +88,6 @@ enum OnDeviceDescriber {
     static func tidy(_ text: String) -> String {
         let line = text.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return String(line.prefix(120))
-    }
-
-    /// Straight-on pictures for the model: two views, not the four of the package, to keep tokens down.
-    static func pictures(of mesh: Mesh, size: Int = 512) -> [CGImage] {
-        var lo = SIMD3<Float>(repeating: .infinity), hi = SIMD3<Float>(repeating: -.infinity)
-        for vertex in mesh.vertices { lo = simd_min(lo, vertex); hi = simd_max(hi, vertex) }
-        let centre = (lo + hi) / 2
-        let span = Swift.max(simd_length(hi - lo) * 1.08, 1e-3)
-        return [MeshRender.views[3], MeshRender.views[1]].compactMap { view in
-            MeshRender.cgImage(MeshRender.render(mesh, view: view, centre: centre, span: span, size: size), size: size)
-        }
     }
 }
 
@@ -75,9 +103,9 @@ enum ScanKind {
 @available(macOS 26.0, *)
 @Generable
 struct ScanReading {
-    @Guide(description: "What the object is, in at most 12 words, for example: wall bracket with two screw holes")
+    @Guide(description: "A guess at what the object is, in at most 12 words, for example: wall bracket with two screw holes. If the numbers do not say, describe its overall shape instead.")
     var summary: String
-    @Guide(description: "mechanical: flat faces, straight edges, round holes, made by machine or mold. organic: sculpted, curved free-form or natural. mixed: both.")
+    @Guide(description: "mechanical: mostly flat faces along the axes, made by machine or mold. organic: sculpted, curved or natural. mixed: both.")
     var kind: ScanKind
 }
 
@@ -92,32 +120,25 @@ private enum Engine {
         }
     }
 
-    static func describe(mesh: Mesh) async throws -> OnDeviceDescriber.Suggestion {
+    static func describe(facts: OnDeviceDescriber.Facts) async throws -> OnDeviceDescriber.Suggestion {
         if let reason = unavailableReason { throw ScanError.message(reason) }
-        let images = OnDeviceDescriber.pictures(of: mesh)
-        guard images.count == 2 else { throw ScanError.message("Could not draw the scan.") }
         let session = LanguageModelSession(instructions: """
-            You look at shaded grey pictures of a 3D scan of a real object and say what it is. \
-            Light grey surfaces face the viewer. Be brief and concrete. If you are not sure, say what it most resembles.
+            You are given measurements of a 3D scan of one real object. Guess what the object is and whether \
+            it is made of simple shapes. You cannot see it, so be modest: if the numbers do not say what it is, \
+            describe the overall shape instead of inventing a purpose.
             """)
         do {
             let response = try await session.respond(
-                generating: ScanReading.self, options: GenerationOptions(samplingMode: .greedy)
-            ) {
-                "These two pictures show one 3D scan, from the front right above, and from the front. What is the object?"
-                Attachment(images[0])
-                Attachment(images[1])
-            }
+                to: facts.text, generating: ScanReading.self, options: GenerationOptions(sampling: .greedy))
             let kind: OnDeviceDescriber.Suitability
             switch response.content.kind {
             case .mechanical: kind = .mechanical
             case .mixed: kind = .mixed
             case .organic: kind = .organic
             }
-            return .init(summary: OnDeviceDescriber.tidy(response.content.summary), suitability: kind)
+            return .init(summary: OnDeviceDescriber.tidy(response.content.summary), suitability: kind, flatShare: facts.flatShare)
         } catch {
-            // Older on-device model versions take no images; the error says so in the system's words.
-            throw ScanError.message("The on-device model could not read the pictures: \(error.localizedDescription)")
+            throw ScanError.message("The on-device model could not answer: \(error.localizedDescription)")
         }
     }
 }

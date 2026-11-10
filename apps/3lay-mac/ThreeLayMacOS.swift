@@ -168,7 +168,8 @@ struct CloudItem: Identifiable {
             do {
                 let result = try await OnDeviceDescriber.describe(mesh: mesh)
                 packageNote = result.summary
-                describeStatus = result.suitability.advice + " This is a small model's guess: check it."
+                describeStatus = "\(Int((result.flatShare * 100).rounded()))% of the surface is flat and lined up with the axes (measured). "
+                    + result.suitability.advice + " The description and verdict are a small model's guess: check them."
             } catch { describeStatus = error.localizedDescription }
             describing = false
         }
@@ -392,7 +393,7 @@ struct ThreeLayMacOSView: View {
             } else {
                 Button(state.describing ? "Looking…" : "Suggest with Apple Intelligence") { state.describeOnDevice() }
                     .disabled(state.describing || state.mesh == nil)
-                Text("Runs on this Mac. It only describes the scan and says whether it suits a rebuild; the rebuild itself needs one of the agents below.").font(.caption).foregroundStyle(.secondary)
+                Text("Runs on this Mac, from the scan's measurements. It only guesses what the object is and whether it suits a rebuild; the rebuild itself needs one of the agents below.").font(.caption).foregroundStyle(.secondary)
             }
             if !state.describeStatus.isEmpty { Text(state.describeStatus).font(.caption) }
             Button("Export scan package…") { state.exportPackage() }.buttonStyle(.borderedProminent).tint(accent).disabled(state.mesh == nil)

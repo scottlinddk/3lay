@@ -58,8 +58,8 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
       with a comparison against the scan; `part.stl` opens in 3lay Mac at the same size.
 - [ ] On a macOS 14 or 15 Mac: 3lay Mac launches and step 05 says Apple Intelligence needs macOS 26 (the
       framework is weak-linked, `@_weakLinked`). On macOS 26 with Apple Intelligence: **Suggest with Apple
-      Intelligence** fills the description for a scanned object, or reports why it cannot (older on-device model
-      versions take no images).
+      Intelligence** fills a guessed description and shows the measured flat share for a scanned object, or reports why it cannot (older on-device model
+      versions answer more slowly or differently).
 - [ ] Scan package in Codex: unzip, run `codex` in the folder, paste the prompt; it finds the skill via `AGENTS.md`.
 - [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
       appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
