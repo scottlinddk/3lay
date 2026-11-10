@@ -22,6 +22,7 @@ targets:
       - LidarImport.swift
       - MeshRender.swift
       - ScanPackage.swift
+      - OnDeviceDescriber.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift

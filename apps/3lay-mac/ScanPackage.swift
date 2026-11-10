@@ -103,6 +103,10 @@ enum ScanPackage {
             try manager.createDirectory(at: root.appending(path: "skill"), withIntermediateDirectories: true)
             try manager.copyItem(at: skill, to: root.appending(path: "skill/scan-to-part"))
             try readme(manifest).write(to: root.appending(path: "README.md"), atomically: true, encoding: .utf8)
+            // Agents look for their own instruction file: AGENTS.md is read by Codex (ChatGPT's coding
+            // agent) and many others, CLAUDE.md by Claude Code. Both point at the same skill.
+            try agentInstructions(manifest).write(to: root.appending(path: "AGENTS.md"), atomically: true, encoding: .utf8)
+            try "@AGENTS.md\n".write(to: root.appending(path: "CLAUDE.md"), atomically: true, encoding: .utf8)
 
             try? manager.removeItem(at: zip)
             let process = Process()
@@ -121,6 +125,27 @@ enum ScanPackage {
         return text
     }
 
+    private static func agentInstructions(_ manifest: Manifest) -> String {
+        """
+        # Scan package
+
+        This folder is a 3D scan from 3lay Mac. To rebuild it as a clean part, read and follow
+        `skill/scan-to-part/SKILL.md`. Start with `README.md` and `scan/scan.json`.
+
+        - Never change anything under `scan/`.
+        - Work in this folder and write `part.scad` and `part.stl` here.
+        - Lengths are millimetres, Z is up.
+        \(manifest.note.isEmpty ? "" : "\nWhat it is, in the owner's words: \(manifest.note)\n")
+        """
+    }
+
+    /// How to start each kind of agent in the unzipped folder.
+    static let agents: [(name: String, steps: String)] = [
+        ("Claude Code", "Open Terminal in the unzipped folder and run `claude`."),
+        ("Codex (ChatGPT)", "Open Terminal in the unzipped folder and run `codex`, or open the folder in the Codex app. It needs a ChatGPT plan or an OpenAI API key."),
+        ("Another agent", "Open the folder in any coding agent that can read files and run commands. It reads `AGENTS.md`; if it does not, paste the prompt."),
+    ]
+
     private static func readme(_ manifest: Manifest) -> String {
         let size = manifest.bounds.size.map { String(format: "%.1f", Double($0)) }.joined(separator: " × ")
         return """
@@ -134,8 +159,11 @@ enum ScanPackage {
 
             ## How to use it
 
-            1. Unzip this folder and open it in an AI coding agent that can read files and run commands,
-               such as Claude Code.
+            1. Unzip this folder and open it in an AI coding agent that can read files and run commands:
+            \(agents.map { "   - **\($0.name):** \($0.steps)" }.joined(separator: "\n"))
+
+               A chat window that cannot run commands on your files, such as the ChatGPT website, cannot do the
+               compare-and-fix loop; use one of the agents above.
             2. Paste this prompt:
 
                > \(prompt(note: manifest.note))

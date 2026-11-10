@@ -71,12 +71,15 @@ enum MeshRender {
         return pixels
     }
 
+    static func cgImage(_ pixels: [UInt8], size: Int) -> CGImage? {
+        guard pixels.count == size * size, let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
+        return CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: size,
+                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
     static func png(_ pixels: [UInt8], size: Int) -> Data? {
-        guard pixels.count == size * size, let provider = CGDataProvider(data: Data(pixels) as CFData),
-              let image = CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: size,
-                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
-                                  provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-        else { return nil }
+        guard let image = cgImage(pixels, size: size) else { return nil }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)

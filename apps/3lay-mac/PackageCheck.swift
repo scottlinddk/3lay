@@ -36,7 +36,7 @@ import ImageIO
         try process.run()
         process.waitUntilExit()
         let package = root.appending(path: "unpacked/Box scan package", directoryHint: .isDirectory)
-        for file in ["README.md", "scan/scan.stl", "scan/scan.json", "scan/views/top.png", "scan/views/front.png", "scan/views/right.png", "scan/views/corner.png",
+        for file in ["README.md", "AGENTS.md", "CLAUDE.md", "scan/scan.stl", "scan/scan.json", "scan/views/top.png", "scan/views/front.png", "scan/views/right.png", "scan/views/corner.png",
                      "scan/photos/01.jpg", "scan/photos/16.jpg", "skill/scan-to-part/SKILL.md", "skill/scan-to-part/tools/scan_tools.py"] {
             guard manager.fileExists(atPath: package.appending(path: file).path) else { throw fail("the package has no \(file)") }
         }
@@ -47,7 +47,11 @@ import ImageIO
         else { throw fail("scan.json is wrong: \(manifest)") }
         guard try Mesh.load(package.appending(path: "scan/scan.stl")).faces.count == 12 else { throw fail("scan.stl does not load") }
         let readme = try String(contentsOf: package.appending(path: "README.md"), encoding: .utf8)
-        guard readme.contains(ScanPackage.prompt(note: "test box")), readme.contains("40.0 × 30.0 × 20.0 mm") else { throw fail("README.md has no prompt or size") }
+        guard readme.contains(ScanPackage.prompt(note: "test box")), readme.contains("40.0 × 30.0 × 20.0 mm"),
+              readme.contains("`claude`"), readme.contains("`codex`") else { throw fail("README.md has no prompt, size or agent steps") }
+        let agents = try String(contentsOf: package.appending(path: "AGENTS.md"), encoding: .utf8)
+        guard agents.contains("skill/scan-to-part/SKILL.md"), agents.contains("test box"),
+              try String(contentsOf: package.appending(path: "CLAUDE.md"), encoding: .utf8).contains("@AGENTS.md") else { throw fail("agent instruction files are wrong") }
 
         // The top view shows the box in the middle and nothing in the corner.
         let size = ScanPackage.viewPixels

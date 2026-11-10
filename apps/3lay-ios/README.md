@@ -56,6 +56,11 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 - [ ] AI rebuild: on the Mac, with a simple mechanical part on the plate, **Export scan package…**, unzip,
       open the folder in a coding agent and paste the prompt. The agent returns `part.scad` and `part.stl`
       with a comparison against the scan; `part.stl` opens in 3lay Mac at the same size.
+- [ ] On a macOS 14 or 15 Mac: 3lay Mac launches and step 05 says Apple Intelligence needs macOS 26 (the
+      framework is weak-linked, `@_weakLinked`). On macOS 26 with Apple Intelligence: **Suggest with Apple
+      Intelligence** fills the description for a scanned object, or reports why it cannot (older on-device model
+      versions take no images).
+- [ ] Scan package in Codex: unzip, run `codex` in the folder, paste the prompt; it finds the skill via `AGENTS.md`.
 - [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
       appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
 - [ ] Unsupported (non-LiDAR) device shows the explanation instead of crashing.

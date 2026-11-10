@@ -27,6 +27,10 @@ struct CloudItem: Identifiable {
     @Published var maximumDetail = false
     /// What the object is, in the user's words. Goes into an exported scan package.
     @Published var packageNote = ""
+    /// Which agent the person will use; only changes the instructions shown.
+    @Published var agentIndex = 0
+    @Published private(set) var describing = false
+    @Published private(set) var describeStatus = ""
     /// Small copies of the photos the scan on the plate was built from, when there are any.
     @Published private(set) var scanPhotos: URL?
     @Published var pairingLink = ""
@@ -152,6 +156,22 @@ struct CloudItem: Identifiable {
             try mesh.saveSTL(url, scale: Float(scale), angle: Float(angle))
             status = "Exported \(url.path)"
         } catch { status = "Export failed: \(error.localizedDescription)" }
+    }
+
+    /// Asks Apple's on-device model what the scan is. Fills the description and says whether it looks
+    /// like a good candidate for a clean rebuild. Nothing leaves the Mac.
+    func describeOnDevice() {
+        guard !describing, let mesh else { return }
+        describing = true
+        describeStatus = "Asking the on-device model…"
+        Task {
+            do {
+                let result = try await OnDeviceDescriber.describe(mesh: mesh)
+                packageNote = result.summary
+                describeStatus = result.suitability.advice + " This is a small model's guess: check it."
+            } catch { describeStatus = error.localizedDescription }
+            describing = false
+        }
     }
 
     /// Saves the scan on the plate as a zip for an AI coding agent, with the skill that tells it how
@@ -367,12 +387,23 @@ struct ThreeLayMacOSView: View {
             Text("Optional. Export the scan as a package for an AI coding agent, which rebuilds it as a clean, editable part: flat faces, round holes, exact dimensions. Good for mechanical parts. A figurine or anything sculpted is better printed from the scan.").foregroundStyle(.secondary)
             section("WHAT IS IT?")
             TextField("For example: wall bracket with two screw holes", text: $state.packageNote)
+            if let reason = OnDeviceDescriber.unavailableReason {
+                Text("Apple Intelligence can suggest this for you. \(reason)").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Button(state.describing ? "Looking…" : "Suggest with Apple Intelligence") { state.describeOnDevice() }
+                    .disabled(state.describing || state.mesh == nil)
+                Text("Runs on this Mac. It only describes the scan and says whether it suits a rebuild; the rebuild itself needs one of the agents below.").font(.caption).foregroundStyle(.secondary)
+            }
+            if !state.describeStatus.isEmpty { Text(state.describeStatus).font(.caption) }
             Button("Export scan package…") { state.exportPackage() }.buttonStyle(.borderedProminent).tint(accent).disabled(state.mesh == nil)
             if state.mesh == nil { Text("Import a scan first.").font(.caption).foregroundStyle(.secondary) }
             section("IN THE ZIP")
             Text("The scan as STL in millimetres, pictures of it from four sides with their scale, its measurements\(state.scanPhotos == nil ? "" : ", 16 or fewer of the photos"), and the scan-to-part skill with a tool the agent uses to compare its part with the scan.").font(.caption).foregroundStyle(.secondary)
             section("THEN")
-            Text("Unzip it, open the folder in an agent such as Claude Code, and paste this prompt:").font(.caption).foregroundStyle(.secondary)
+            Picker("Agent", selection: $state.agentIndex) {
+                ForEach(ScanPackage.agents.indices, id: \.self) { Text(ScanPackage.agents[$0].name).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden()
+            Text("Unzip it. \(ScanPackage.agents[state.agentIndex].steps) Then paste this prompt:").font(.caption).foregroundStyle(.secondary)
             Text(ScanPackage.prompt(note: state.packageNote.trimmingCharacters(in: .whitespacesAndNewlines))).font(.caption).textSelection(.enabled)
             Button("Copy prompt") {
                 NSPasteboard.general.clearContents()
