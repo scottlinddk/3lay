@@ -137,7 +137,7 @@ final class AppModel: ObservableObject {
                 phase = .reconstructing(nil)
                 try await OnDeviceReconstruction.run(
                     imagesDirectory: folder.appendingPathComponent("Images"), output: model,
-                    progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
+                    progress: { fraction in Task { @MainActor in self.reconstructionProgress(fraction) } })
             }
             phase = .viewing(folder: folder, model: model)
         } catch {
@@ -159,7 +159,7 @@ final class AppModel: ObservableObject {
                 phase = .reconstructing(nil)
                 try await OnDeviceReconstruction.run(
                     imagesDirectory: folder.appendingPathComponent("Images"), output: model,
-                    progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
+                    progress: { fraction in Task { @MainActor in self.reconstructionProgress(fraction) } })
                 phase = .sendingToMac(name: mac.name)
             }
             try await client.upload(file: model, as: Self.macFilename(name))
@@ -191,7 +191,7 @@ final class AppModel: ObservableObject {
                     + "Update it, or choose Build on this phone. Your scan is kept on this phone.")
                 return
             }
-            let zip = try CaptureArchive.make(
+            let zip = try await Self.pack(
                 imagesDirectory: folder.appendingPathComponent("Images"),
                 name: Self.macFilename(name).replacingOccurrences(of: ".usdz", with: ""))
             archive = zip
@@ -242,7 +242,7 @@ final class AppModel: ObservableObject {
                     + "Update it first. Your scan is kept on this phone.")
                 return
             }
-            let zip = try CaptureArchive.make(
+            let zip = try await Self.pack(
                 imagesDirectory: pending.folder,
                 name: Self.macFilename(name).replacingOccurrences(of: ".usdz", with: "") + ".lidar")
             archive = zip
@@ -258,6 +258,29 @@ final class AppModel: ObservableObject {
         } catch {
             phase = .failed("Could not send to \(mac.name): \(error.localizedDescription) Your scan is kept on this phone.")
         }
+    }
+
+    // MARK: Progress
+
+    /// Progress arrives from background tasks, possibly late or out of order. Apply it only while that
+    /// step is still showing (a late callback used to overwrite the next screen), only when it moves
+    /// forward, and only per whole percent, so the view is not rebuilt on every tiny change.
+    private func reconstructionProgress(_ fraction: Double) {
+        guard case .reconstructing(let old) = phase else { return }
+        if let old, Int(fraction * 100) <= Int(old * 100) { return }
+        phase = .reconstructing(fraction)
+    }
+
+    private func uploadProgress(done: Int, total: Int) {
+        guard case .submitting(let old, _) = phase, done > old else { return }
+        phase = .submitting(done: done, total: total)
+    }
+
+    /// Zipping hundreds of photos is slow, synchronous file work. Run on the main actor it froze the UI.
+    nonisolated private static func pack(imagesDirectory: URL, name: String) async throws -> URL {
+        try await Task.detached(priority: .userInitiated) {
+            try CaptureArchive.make(imagesDirectory: imagesDirectory, name: name)
+        }.value
     }
 
     static func macFilename(_ name: String, now: Date = Date()) -> String {
@@ -320,7 +343,7 @@ final class AppModel: ObservableObject {
             let result = try await submission.submit(
                 name: name, imagesDirectory: imagesDirectory, device: Self.device,
                 onProgress: { done, total in
-                    Task { @MainActor in self.phase = .submitting(done: done, total: total) }
+                    Task { @MainActor in self.uploadProgress(done: done, total: total) }
                 })
             phase = .submitted(jobId: result.jobId, photos: result.photoCount)
             clearPendingCapture()
@@ -337,7 +360,7 @@ final class AppModel: ObservableObject {
         do {
             try await OnDeviceReconstruction.run(
                 imagesDirectory: folder.appendingPathComponent("Images"), output: model,
-                progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
+                progress: { fraction in Task { @MainActor in self.reconstructionProgress(fraction) } })
             let api = APIClient(transport: URLSessionTransport(baseURL: pairing.server, token: pairing.token))
             let uploader = ResumableUploader(api: api, store: FileUploadStore())
             let job = try await api.createJob(name: name, sourceKind: "mesh")

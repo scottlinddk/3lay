@@ -10,6 +10,7 @@ public struct SubmissionResult: Equatable {
 /// Mac reconstruction. Re-running after a failure resumes uploads rather than duplicating them.
 public struct Submission {
     public static let minimumPhotos = 50
+    static let maxConcurrentUploads = 4
 
     let api: APIClient
     let uploader: ResumableUploader
@@ -29,14 +30,35 @@ public struct Submission {
         if let existingJob { job = existingJob } else {
             job = try await api.createJob(name: name, sourceKind: "photos").id
         }
-        var photos: [[String: String]] = []
-        let total = manifest.images.count + 1
-        for (i, file) in manifest.images.enumerated() {
-            let artifact = try await uploader.upload(
-                file: imagesDirectory.appendingPathComponent(file.path), jobId: job, kind: "photo")
-            photos.append(["artifact_id": artifact.id, "filename": file.path])
-            onProgress(i + 1, total)
+        let images = manifest.images
+        let total = images.count + 1
+        var artifactIds = [String](repeating: "", count: images.count)
+        var done = 0
+        // A few photos at a time: one at a time left the connection idle between round trips. The
+        // manifest already holds each photo's hash, so the uploader does not read the files again.
+        try await withThrowingTaskGroup(of: (Int, String).self) { group in
+            var inFlight = 0
+            func record(_ result: (Int, String)) {
+                artifactIds[result.0] = result.1
+                done += 1
+                onProgress(done, total)
+            }
+            for (i, file) in images.enumerated() {
+                if inFlight >= Self.maxConcurrentUploads, let finished = try await group.next() {
+                    record(finished)
+                    inFlight -= 1
+                }
+                group.addTask {
+                    let artifact = try await uploader.upload(
+                        file: imagesDirectory.appendingPathComponent(file.path), jobId: job,
+                        kind: "photo", sha256: file.sha256)
+                    return (i, artifact.id)
+                }
+                inFlight += 1
+            }
+            while let finished = try await group.next() { record(finished) }
         }
+        let photos = zip(images, artifactIds).map { ["artifact_id": $1, "filename": $0.path] }
         let manifestArtifact = try await uploader.upload(
             file: manifestURL, jobId: job, kind: "capture_bundle")
         onProgress(total, total)

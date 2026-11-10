@@ -7,12 +7,14 @@ public protocol UploadStore {
     func remove(key: String)
 }
 
+/// Uploads run concurrently, so stores must tolerate calls from several tasks at once.
 public final class InMemoryUploadStore: UploadStore {
+    private let lock = NSLock()
     private var ids: [String: String] = [:]
     public init() {}
-    public func uploadId(for key: String) -> String? { ids[key] }
-    public func save(uploadId: String, for key: String) { ids[key] = uploadId }
-    public func remove(key: String) { ids[key] = nil }
+    public func uploadId(for key: String) -> String? { lock.withLock { ids[key] } }
+    public func save(uploadId: String, for key: String) { lock.withLock { ids[key] = uploadId } }
+    public func remove(key: String) { lock.withLock { ids[key] = nil } }
 }
 
 public struct ResumableUploader {
@@ -29,11 +31,13 @@ public struct ResumableUploader {
     }
 
     /// Uploads one file and returns the stored artifact. Safe to call again after a crash.
+    /// Pass `sha256` when the caller already hashed the file, so it is not read from disk a second time.
     public func upload(
-        file: URL, jobId: String, kind: String, onProgress: (Int, Int) -> Void = { _, _ in }
+        file: URL, jobId: String, kind: String, sha256 knownSha: String? = nil,
+        onProgress: (Int, Int) -> Void = { _, _ in }
     ) async throws -> Artifact {
         let size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int ?? 0
-        let sha = try Hashing.sha256(of: file)
+        let sha = try knownSha ?? Hashing.sha256(of: file)
         let key = "\(jobId)/\(sha)"
 
         var upload = try await resumeOrCreate(file: file, jobId: jobId, kind: kind, size: size,

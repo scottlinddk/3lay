@@ -5,6 +5,7 @@ import Foundation
 /// Persists open upload ids across launches so an interrupted submit resumes.
 final class FileUploadStore: UploadStore {
     private let url: URL
+    private let lock = NSLock()
     private var ids: [String: String]
 
     init() {
@@ -14,9 +15,10 @@ final class FileUploadStore: UploadStore {
         ids = (try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))) ?? [:]
     }
 
-    func uploadId(for key: String) -> String? { ids[key] }
-    func save(uploadId: String, for key: String) { ids[key] = uploadId; persist() }
-    func remove(key: String) { ids[key] = nil; persist() }
+    // Photos upload concurrently, so every access takes the lock.
+    func uploadId(for key: String) -> String? { lock.withLock { ids[key] } }
+    func save(uploadId: String, for key: String) { lock.withLock { ids[key] = uploadId; persist() } }
+    func remove(key: String) { lock.withLock { ids[key] = nil; persist() } }
 
     private func persist() {
         try? JSONEncoder().encode(ids).write(to: url, options: .atomic)
