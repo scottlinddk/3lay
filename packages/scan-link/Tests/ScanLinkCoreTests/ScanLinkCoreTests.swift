@@ -22,6 +22,24 @@ final class ScanLinkCoreTests: XCTestCase {
         XCTAssertGreaterThan(LanProtocol.maxBytes(for: "a.zip"), LanProtocol.maxBytes(for: "a.usdz"))
     }
 
+    func testLidarBundlesAreRecognisedByName() {
+        XCTAssertTrue(LanProtocol.isLidarBundle("Scan 2026-11-10.lidar.zip"))
+        XCTAssertTrue(LanProtocol.isLidarBundle("SCAN.LIDAR.ZIP"))
+        XCTAssertFalse(LanProtocol.isLidarBundle("Scan.zip"))
+        XCTAssertFalse(LanProtocol.isLidarBundle("lidar.zip.txt"))
+        // Still a zip as far as the receiver's upload rules go.
+        XCTAssertTrue(LanProtocol.isAcceptedUpload("Scan.lidar.zip"))
+        XCTAssertEqual(LanProtocol.maxBytes(for: "Scan.lidar.zip"), LanProtocol.maxCaptureBytes)
+    }
+
+    func testHelloAdvertisesLidarSupportAndOlderMacsDoNot() throws {
+        XCTAssertEqual(LanHello(name: "New").supportsLidarBundles, true)
+        let decoded = try JSONDecoder().decode(LanHello.self, from: JSONEncoder().encode(LanHello(name: "New")))
+        XCTAssertEqual(decoded.supportsLidarBundles, true)
+        let old = #"{"service":"threelaymacos","version":1,"name":"Old","maxBytes":1,"extensions":["stl"],"maxCaptureBytes":5}"#
+        XCTAssertNil(try JSONDecoder().decode(LanHello.self, from: Data(old.utf8)).supportsLidarBundles)
+    }
+
     func testHelloFromOlderMacHasNoCaptureLimit() throws {
         let old = #"{"service":"threelaymacos","version":1,"name":"Old","maxBytes":1,"extensions":["stl"]}"#
         XCTAssertNil(try JSONDecoder().decode(LanHello.self, from: Data(old.utf8)).maxCaptureBytes)

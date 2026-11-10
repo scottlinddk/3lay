@@ -70,11 +70,27 @@ struct CloudItem: Identifiable {
 
     /// A file that arrived from the phone. USDZ is converted to STL first, off the main thread.
     func receive(_ url: URL) {
+        // Check the LiDAR bundle first: it is a zip too.
+        if LanProtocol.isLidarBundle(url.lastPathComponent) { importLidar(archive: url); return }
         if LanProtocol.isCaptureArchive(url.lastPathComponent) { reconstruct(archive: url); return }
         guard url.pathExtension.lowercased() == "usdz" else { importFile(url); return }
         status = "Converting \(url.lastPathComponent)…"
         Task {
             do { importFile(try await UsdzConverter.convert(url), unitScale: Mesh.metresToMillimetres) } catch { status = "Phone import failed: \(error.localizedDescription)" }
+        }
+    }
+
+    /// A LiDAR scan (rooms and large objects): the phone's ARKit mesh is imported as is, in meters.
+    func importLidar(archive: URL) {
+        status = "Unpacking LiDAR scan…"
+        Task {
+            do {
+                let bundle = try await LidarImport.unpack(archive: archive)
+                importFile(bundle.mesh, unitScale: Mesh.metresToMillimetres)
+                if status.hasPrefix("Imported") {
+                    status += " · LiDAR mesh · \(bundle.photoCount) photos with camera poses kept in \(bundle.folder.path)"
+                }
+            } catch { status = "LiDAR import failed: \(error.localizedDescription)" }
         }
     }
 

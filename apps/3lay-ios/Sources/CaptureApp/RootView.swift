@@ -58,12 +58,38 @@ public struct RootView: View {
                     Text("This device has no LiDAR, so guided capture is unavailable.")
                         .multilineTextAlignment(.center)
                 }
+                if LidarCapture.isSupported {
+                    Button("Scan a room or large object (LiDAR)") { model.beginLidarCapture() }.buttonStyle(.borderedProminent)
+                    Text("Records the LiDAR mesh with photos and sends it to your Mac. For small objects use Scan an object.")
+                        .font(.footnote).multilineTextAlignment(.center)
+                }
                 Button(model.pairedMac == nil ? "Find a Mac nearby" : "Change Mac") { model.showNearbyMac = true }
                 if model.pairedHost != nil { Button("Unpair server", role: .destructive) { model.unpair() } }
                 if model.pairedMac != nil { Button("Forget Mac", role: .destructive) { model.forgetMac() } }
             }
         case .capturing:
             CaptureScreen()
+        case .lidarCapturing:
+            LidarCaptureScreen()
+        case .lidarReady:
+            VStack(spacing: 12) {
+                Text("LiDAR scan saved").font(.title2)
+                if let pending = model.pendingLidar {
+                    Text("\(pending.photos) photos · \(pending.triangles / 1000)k triangles")
+                }
+                Button("Send to \(model.pairedMac?.name ?? "my Mac")") {
+                    Task { await model.sendLidarToMac(name: "LiDAR scan") }
+                }.buttonStyle(.borderedProminent)
+                Button("Change Mac or pairing code") { model.showNearbyMac = true }
+                Divider().padding(.vertical, 8)
+                Button("Discard scan", role: .destructive) { confirmDiscard = true }
+            }
+            .confirmationDialog("Discard this scan?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Discard scan", role: .destructive) { model.discardLidar() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The scan on this phone is deleted and cannot be recovered.")
+            }
         case .choosing(let folder):
             VStack(spacing: 12) {
                 Text("Capture complete").font(.title2)

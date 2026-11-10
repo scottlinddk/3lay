@@ -19,6 +19,7 @@ targets:
       - UsdzConverter.swift
       - PhotoReconstruction.swift
       - PhotoQuality.swift
+      - LidarImport.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift

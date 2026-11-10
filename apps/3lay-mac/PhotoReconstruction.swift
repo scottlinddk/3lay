@@ -78,7 +78,7 @@ enum PhotoReconstruction {
     }
 
     /// `ditto` ships with macOS and unpacks the zip a phone produces.
-    private static func unzip(_ archive: URL, to folder: URL) async throws {
+    static func unzip(_ archive: URL, to folder: URL) async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
