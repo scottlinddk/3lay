@@ -29,7 +29,33 @@ LiDAR meshes are around 1 cm coarse, so small objects come out better from photo
 
 ## Photo scans from the phone
 
-When the phone sends photos, 3lay Mac checks them before Object Capture builds the model. It sets aside the blurriest frames (at most a quarter of them, never below 20 photos) and counts how many photos carry LiDAR depth, which Object Capture uses for scale and for surfaces with little texture. The status line reports the result, for example `Full detail · 118 photos (2 blurry set aside) · LiDAR depth in 120 of 120`. The model is built at Full detail with high feature sensitivity; **Maximum detail (raw)** in *Import a scan* tries Apple's unprocessed level first.
+When the phone sends photos, 3lay Mac checks them before Object Capture builds the model. It sets aside photos that are much softer than the ones taken just before and after them (at most a quarter of the photos, never below 20) and counts how many photos carry LiDAR depth, which Object Capture uses for scale and for surfaces with little texture. Photos are compared with their neighbours, not with the whole capture, so views of a plain side of the object are kept. The status line reports the result, for example `1M-triangle detail · 118 photos (2 blurry set aside) · LiDAR depth in 120 of 120`.
+
+Detail for printing has to be in the shape, because an STL has no texture. Apple's preset levels stop at 250,000 triangles (Full) and keep finer detail in texture maps, so the model is built at a custom level with up to 1 million triangles, with high feature sensitivity. **Maximum detail** in *Import a scan* raises that to 3 million. A level that fails falls back to Full, then Medium. This needs macOS 14, which is the oldest macOS 3lay Mac runs on.
+
+Object Capture models stand along Y. USDZ scans are turned on import to stand along Z, on the plate.
+
+## AI rebuild (optional scan package)
+
+For mechanical parts there is a second path beside the scan. Step **05 AI rebuild** has **Export scan package…**, which saves a zip for an AI coding agent. 3lay Mac calls no AI service and needs no key; the package is just a file.
+
+```
+<name> scan package/
+  README.md                the prompt to paste, and what the agent needs
+  scan/scan.stl            the scan, millimetres (scale factor applied), Z up, on Z = 0
+  scan/scan.json           3lay-scan-package/1: bounds, your description, the camera of every picture
+  scan/views/*.png         top, front, right and corner, straight on, with mm per pixel in scan.json
+  scan/photos/*.jpg        up to 16 small photos, when the scan was built from photos on this Mac
+  skill/scan-to-part/      SKILL.md and tools/scan_tools.py
+```
+
+Unzip it, open the folder in an agent that can read files and run commands and paste the prompt from the README or from **Copy prompt**. The package works with **Claude Code** (`claude`, reads `CLAUDE.md`) and **Codex**, ChatGPT's coding agent (`codex`, reads `AGENTS.md`); the skill is a standard `SKILL.md` folder both understand, and the prompt names its path for any other agent. A chat window that cannot run commands on your files, such as the ChatGPT website, cannot do the compare-and-fix loop.
+
+On macOS 26 or later with Apple Intelligence, **Suggest with Apple Intelligence** uses Apple's on-device model, locally, to guess a description and whether the object looks made of simple shapes (`OnDeviceDescriber.swift`). It is given measurements (size, and the measured share of flat, axis-aligned surface), not pictures, so it works on every macOS 26. That is all it does: the rebuild is a multi-round loop over pictures and measurements, which a small on-device model with a small context window cannot be expected to do, so it stays with the agent. The framework is weak-linked, so the app still runs on macOS 14 and 15 without the button. The skill (`skill/scan-to-part/SKILL.md` in this directory) has the agent measure the scan, write an OpenSCAD model in the scan's coordinates, build it, and compare it with the scan using `scan_tools.py`: side-by-side pictures from the same cameras, and distances both ways in millimetres. It repeats until the part matches, then hands back `part.scad` and `part.stl`. Open `part.stl` with **Import file**.
+
+The agent's machine needs Python 3 with numpy and the `openscad` command. The result is cleaner than the scan, not more accurate than it: sizes come from the scan, so a scale error stays unless you give the agent a measured dimension. Organic shapes do not fit simple solids, and the skill tells the agent to say so and stop.
+
+`PackageCheck.swift` writes a package and checks its contents; `./rebuild_check` then runs `scan_tools.py` on it when numpy is installed. The skill has not been run by an agent on a real scan yet.
 
 ## Phone browser handoff
 

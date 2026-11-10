@@ -6,7 +6,7 @@ name: ThreeLayMacOS
 options:
   bundleIdPrefix: com.craftanything
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "14.0"
 packages:
   ScanLink:
     path: ../../packages/scan-link
@@ -20,11 +20,18 @@ targets:
       - PhotoReconstruction.swift
       - PhotoQuality.swift
       - LidarImport.swift
+      - MeshRender.swift
+      - ScanPackage.swift
+      - OnDeviceDescriber.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift
       # Run by UsdzConverter through /usr/bin/swift, so copy it, never compile it (top-level code).
       - path: convert_usdz.swift
+        buildPhase: resources
+      # The scan-to-part skill that goes into every exported scan package.
+      - path: skill
+        type: folder
         buildPhase: resources
     dependencies:
       - package: ScanLink
@@ -44,7 +51,7 @@ targets:
       properties:
         CFBundleName: 3lay Mac
         CFBundleDisplayName: 3lay Mac
-        LSMinimumSystemVersion: "13.0"
+        LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
         NSLocalNetworkUsageDescription: 3lay Mac receives scans from your phone over your local network.
         NSBonjourServices: [_threelaymacos._tcp]

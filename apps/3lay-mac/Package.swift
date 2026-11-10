@@ -6,7 +6,7 @@ import PackageDescription
 // file; it compiles the same shared sources from packages/scan-link.
 let package = Package(
     name: "ThreeLayMacOS",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "ThreeLayMacOS", targets: ["ThreeLayMacOS"])
     ],
@@ -20,10 +20,10 @@ let package = Package(
             path: ".",
             exclude: [
                 "shots",
-                "MeshCheck.swift", "ReceiverCheck.swift", "PhotoQualityCheck.swift", "convert_usdz.swift", "MECHANICS.md",
+                "MeshCheck.swift", "ReceiverCheck.swift", "PhotoQualityCheck.swift", "PackageCheck.swift", "skill", "convert_usdz.swift", "MECHANICS.md",
                 "README.md", "build.sh", "project.yml", "sources.sh", "mechanics.json", "rebuild_check", "package.json"
             ],
-            sources: ["Mesh.swift", "UsdzConverter.swift", "PhotoReconstruction.swift", "PhotoQuality.swift", "LidarImport.swift", "LanAdvertiser.swift", "PhoneReceiver.swift", "ThreeLayMacOS.swift"],
+            sources: ["Mesh.swift", "UsdzConverter.swift", "PhotoReconstruction.swift", "PhotoQuality.swift", "LidarImport.swift", "MeshRender.swift", "ScanPackage.swift", "OnDeviceDescriber.swift", "LanAdvertiser.swift", "PhoneReceiver.swift", "ThreeLayMacOS.swift"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI")

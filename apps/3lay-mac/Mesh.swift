@@ -12,7 +12,9 @@ struct Mesh {
     static let metresToMillimetres: Float = 1000
 
     /// `unitScale` multiplies every coordinate, so a model in metres can come in as millimetres.
-    static func load(_ url: URL, unitScale: Float = 1) throws -> Mesh {
+    /// `yUp` is for Object Capture models, which stand along Y: they are turned to stand along Z like
+    /// the plate and slicers expect. (x, y, z) becomes (x, -z, y), a rotation, so nothing is mirrored.
+    static func load(_ url: URL, unitScale: Float = 1, yUp: Bool = false) throws -> Mesh {
         let data = try Data(contentsOf: url)
         guard data.count <= maxFileBytes else { throw ScanError.message("File exceeds the 500 MB import limit") }
         var mesh: Mesh
@@ -25,6 +27,7 @@ struct Mesh {
         guard !mesh.vertices.isEmpty && !mesh.faces.isEmpty else { throw ScanError.message("No surface triangles found in this file") }
         guard mesh.vertices.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }) else { throw ScanError.message("Mesh contains invalid coordinates") }
         if unitScale != 1 { mesh.vertices = mesh.vertices.map { $0 * unitScale } }
+        if yUp { mesh.vertices = mesh.vertices.map { SIMD3($0.x, -$0.z, $0.y) } }
         var lo = SIMD3<Float>(repeating: .infinity)
         var hi = SIMD3<Float>(repeating: -.infinity)
         for v in mesh.vertices {

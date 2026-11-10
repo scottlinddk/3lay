@@ -23,8 +23,16 @@ struct CloudItem: Identifiable {
     @Published var angle: Double = 0
     @Published var status = "Ready for a scan"
     @Published var path = ""
-    /// Try Object Capture's unprocessed `.raw` level first. Slow and memory hungry, off by default.
+    /// Build photo scans with the larger triangle budget. Slower and memory hungry, off by default.
     @Published var maximumDetail = false
+    /// What the object is, in the user's words. Goes into an exported scan package.
+    @Published var packageNote = ""
+    /// Which agent the person will use; only changes the instructions shown.
+    @Published var agentIndex = 0
+    @Published private(set) var describing = false
+    @Published private(set) var describeStatus = ""
+    /// Small copies of the photos the scan on the plate was built from, when there are any.
+    @Published private(set) var scanPhotos: URL?
     @Published var pairingLink = ""
     @Published var cloudItems: [CloudItem] = []
     @Published var phoneStatus = ""
@@ -76,7 +84,7 @@ struct CloudItem: Identifiable {
         guard url.pathExtension.lowercased() == "usdz" else { importFile(url); return }
         status = "Converting \(url.lastPathComponent)…"
         Task {
-            do { importFile(try await UsdzConverter.convert(url), unitScale: Mesh.metresToMillimetres) } catch { status = "Phone import failed: \(error.localizedDescription)" }
+            do { importFile(try await UsdzConverter.convert(url), unitScale: Mesh.metresToMillimetres, yUp: true) } catch { status = "Phone import failed: \(error.localizedDescription)" }
         }
     }
 
@@ -100,13 +108,14 @@ struct CloudItem: Identifiable {
         status = "Unpacking photos…"
         Task {
             do {
-                let built = try await PhotoReconstruction.run(archive: archive, useRaw: maximumDetail) { fraction in
+                let built = try await PhotoReconstruction.run(archive: archive, maximumDetail: maximumDetail) { fraction in
                     DispatchQueue.main.async { self.status = "Building model from photos… \(Int(fraction * 100))%" }
                 }
                 status = "Converting model…"
                 let stl = try await UsdzConverter.convert(built.url)
                 try? FileManager.default.removeItem(at: archive)  // photos can be hundreds of MB
-                importFile(stl, unitScale: Mesh.metresToMillimetres)
+                importFile(stl, unitScale: Mesh.metresToMillimetres, yUp: true)
+                if status.hasPrefix("Imported") { scanPhotos = built.photos }
                 // Say which level this really is: a failed higher level falls back silently otherwise.
                 if status.hasPrefix("Imported") {
                     let q = built.quality
@@ -120,12 +129,14 @@ struct CloudItem: Identifiable {
 
     /// `unitScale` is 1000 for a USDZ conversion (metres to millimetres). Without it a 20 cm scan
     /// became a 0.2 mm speck on the 256 mm plate and looked like nothing had loaded.
-    func importFile(_ url: URL, unitScale: Float = 1) {
+    /// `yUp` turns an Object Capture model (Y up) to stand on the plate (Z up).
+    func importFile(_ url: URL, unitScale: Float = 1, yUp: Bool = false) {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
-            let imported = try Mesh.load(url, unitScale: unitScale)
+            let imported = try Mesh.load(url, unitScale: unitScale, yUp: yUp)
             mesh = imported
+            scanPhotos = nil
             selection = 1
             scale = 1
             path = url.path
@@ -145,6 +156,46 @@ struct CloudItem: Identifiable {
             try mesh.saveSTL(url, scale: Float(scale), angle: Float(angle))
             status = "Exported \(url.path)"
         } catch { status = "Export failed: \(error.localizedDescription)" }
+    }
+
+    /// Asks Apple's on-device model what the scan is. Fills the description and says whether it looks
+    /// like a good candidate for a clean rebuild. Nothing leaves the Mac.
+    func describeOnDevice() {
+        guard !describing, let mesh else { return }
+        describing = true
+        describeStatus = "Asking the on-device model…"
+        Task {
+            do {
+                let result = try await OnDeviceDescriber.describe(mesh: mesh)
+                packageNote = result.summary
+                describeStatus = "\(Int((result.flatShare * 100).rounded()))% of the surface is flat and lined up with the axes (measured). "
+                    + result.suitability.advice + " The description and verdict are a small model's guess: check them."
+            } catch { describeStatus = error.localizedDescription }
+            describing = false
+        }
+    }
+
+    /// Saves the scan on the plate as a zip for an AI coding agent, with the skill that tells it how
+    /// to rebuild the scan as a clean part. The current scale factor is applied; rotation is not.
+    func exportPackage() {
+        guard let mesh else { return }
+        guard let skill = ScanPackage.bundledSkill else { status = "Export failed: the scan-to-part skill is missing from the app"; return }
+        let stem = (mesh.name as NSString).deletingPathExtension
+        let save = NSSavePanel()
+        save.nameFieldStringValue = "\(stem.isEmpty ? "Scan" : stem) scan package.zip"
+        save.allowedContentTypes = [.zip]
+        guard save.runModal() == .OK, let url = save.url else { return }
+        var scaled = mesh
+        scaled.vertices = mesh.vertices.map { $0 * Float(scale) }
+        scaled.bounds = mesh.bounds * Float(scale)
+        let note = packageNote, photos = scanPhotos
+        status = "Writing scan package…"
+        Task {
+            do {
+                try await ScanPackage.write(mesh: scaled, note: note, photos: photos, skill: skill, to: url)
+                status = "Exported \(url.path)"
+            } catch { status = "Export failed: \(error.localizedDescription)" }
+        }
     }
 
     private func pairing() throws -> (URL, String) {
@@ -205,11 +256,12 @@ struct CloudItem: Identifiable {
                 var file = dir.appending(path: "\(item.id)-\(filename)")
                 try data.write(to: file, options: .atomic)
                 var unitScale: Float = 1
-                if file.pathExtension.lowercased() == "usdz" {
+                let isUsdz = file.pathExtension.lowercased() == "usdz"
+                if isUsdz {
                     file = try await UsdzConverter.convert(file)
                     unitScale = Mesh.metresToMillimetres
                 }
-                importFile(file, unitScale: unitScale)
+                importFile(file, unitScale: unitScale, yUp: isUsdz)
             } catch { status = "Phone import failed: \(error.localizedDescription)" }
         }
     }
@@ -218,7 +270,7 @@ struct CloudItem: Identifiable {
 struct ThreeLayMacOSView: View {
     @StateObject private var state = ScanState()
     @State private var importing = false
-    private let steps = [("01", "Bring in a scan", "Phone or file"), ("02", "Check size", "Confirm millimetres"), ("03", "Place on plate", "Rotate and inspect"), ("04", "Next steps", "Export and slice")]
+    private let steps = [("01", "Bring in a scan", "Phone or file"), ("02", "Check size", "Confirm millimetres"), ("03", "Place on plate", "Rotate and inspect"), ("04", "Next steps", "Export and slice"), ("05", "AI rebuild", "Optional scan package")]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -289,8 +341,8 @@ struct ThreeLayMacOSView: View {
             section("ON YOUR PHONE")
             Text("Open the 3lay iOS app, choose Nearby Mac, pick this Mac and enter the code. Then scan an object and send it here.").font(.caption).foregroundStyle(.secondary)
             Text("Pairing code  \(state.code)").font(.headline).foregroundStyle(accent)
-            Toggle("Maximum detail (raw)", isOn: $state.maximumDetail)
-            Text("Tries Apple's highest, unprocessed level for photos sent from the phone. Much slower and needs a lot of memory and disk; it falls back to Full, then Medium, and the status line says which was used.").font(.caption).foregroundStyle(.secondary)
+            Toggle("Maximum detail", isOn: $state.maximumDetail)
+            Text("Photo scans are built with up to 1 million triangles so fine shapes survive in the STL. This raises it to 3 million: slower and needs more memory. If a level fails it falls back to Full, then Medium, and the status line says which was used.").font(.caption).foregroundStyle(.secondary)
             Button("New code") { state.rotateCode() }
             Text("A new code disconnects phones that used the old one.").font(.caption).foregroundStyle(.secondary)
             Text("No Mac in the list? Type this address on the phone, or open it in the phone's browser:").font(.caption).foregroundStyle(.secondary).padding(.top, 8)
@@ -331,6 +383,34 @@ struct ThreeLayMacOSView: View {
             Button("Reset view") { state.angle = 0 }
             section("PLATE PREVIEW")
             Text("256 × 256 mm visual guide. Confirm the actual printer profile before slicing.").font(.caption).foregroundStyle(.secondary)
+        case 4:
+            Text("AI rebuild").font(.title2.bold())
+            Text("Optional. Export the scan as a package for an AI coding agent, which rebuilds it as a clean, editable part: flat faces, round holes, exact dimensions. Good for mechanical parts. A figurine or anything sculpted is better printed from the scan.").foregroundStyle(.secondary)
+            section("WHAT IS IT?")
+            TextField("For example: wall bracket with two screw holes", text: $state.packageNote)
+            if let reason = OnDeviceDescriber.unavailableReason {
+                Text("Apple Intelligence can suggest this for you. \(reason)").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Button(state.describing ? "Looking…" : "Suggest with Apple Intelligence") { state.describeOnDevice() }
+                    .disabled(state.describing || state.mesh == nil)
+                Text("Runs on this Mac, from the scan's measurements. It only guesses what the object is and whether it suits a rebuild; the rebuild itself needs one of the agents below.").font(.caption).foregroundStyle(.secondary)
+            }
+            if !state.describeStatus.isEmpty { Text(state.describeStatus).font(.caption) }
+            Button("Export scan package…") { state.exportPackage() }.buttonStyle(.borderedProminent).tint(accent).disabled(state.mesh == nil)
+            if state.mesh == nil { Text("Import a scan first.").font(.caption).foregroundStyle(.secondary) }
+            section("IN THE ZIP")
+            Text("The scan as STL in millimetres, pictures of it from four sides with their scale, its measurements\(state.scanPhotos == nil ? "" : ", 16 or fewer of the photos"), and the scan-to-part skill with a tool the agent uses to compare its part with the scan.").font(.caption).foregroundStyle(.secondary)
+            section("THEN")
+            Picker("Agent", selection: $state.agentIndex) {
+                ForEach(ScanPackage.agents.indices, id: \.self) { Text(ScanPackage.agents[$0].name).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden()
+            Text("Unzip it. \(ScanPackage.agents[state.agentIndex].steps) Then paste this prompt:").font(.caption).foregroundStyle(.secondary)
+            Text(ScanPackage.prompt(note: state.packageNote.trimmingCharacters(in: .whitespacesAndNewlines))).font(.caption).textSelection(.enabled)
+            Button("Copy prompt") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(ScanPackage.prompt(note: state.packageNote.trimmingCharacters(in: .whitespacesAndNewlines)), forType: .string)
+            }
+            Text("The agent hands back part.scad and part.stl. Open part.stl here with Import file. 3lay Mac sends nothing anywhere: the package is just a file.").font(.caption).foregroundStyle(.secondary)
         default:
             Text("Next steps").font(.title2.bold())
             Text("Review the size and orientation, then open the source mesh in a slicer to choose printer and material settings.").foregroundStyle(.secondary)

@@ -51,6 +51,16 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 
 - [ ] Nearby Mac checks in `docs/LAN_LINK.md` (Local Network prompt, pairing, real scan arrives).
 - [ ] LiDAR iPhone/iPad on a current iOS: capture a real object end to end, note iOS version and model.
+- [ ] Object scan sent as photos: on the Mac the model stands upright on the plate (not on its side), and
+      the status line shows `1M-triangle detail` with clearly more than 250,000 triangles.
+- [ ] AI rebuild: on the Mac, with a simple mechanical part on the plate, **Export scan package…**, unzip,
+      open the folder in a coding agent and paste the prompt. The agent returns `part.scad` and `part.stl`
+      with a comparison against the scan; `part.stl` opens in 3lay Mac at the same size.
+- [ ] On a macOS 14 or 15 Mac: 3lay Mac launches and step 05 says Apple Intelligence needs macOS 26 (the
+      framework is weak-linked, `@_weakLinked`). On macOS 26 with Apple Intelligence: **Suggest with Apple
+      Intelligence** fills a guessed description and shows the measured flat share for a scanned object, or reports why it cannot (older on-device model
+      versions answer more slowly or differently).
+- [ ] Scan package in Codex: unzip, run `codex` in the folder, paste the prompt; it finds the skill via `AGENTS.md`.
 - [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
       appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
 - [ ] Unsupported (non-LiDAR) device shows the explanation instead of crashing.

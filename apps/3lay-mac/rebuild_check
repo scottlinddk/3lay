@@ -8,6 +8,20 @@ export SWIFT_MODULE_CACHE_PATH="$PWD/.cache"
 swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift MeshCheck.swift -o .build/MeshCheck
 .build/MeshCheck
 swiftc -disable-sandbox -swift-version 5 -parse-as-library PhotoQuality.swift PhotoQualityCheck.swift -o .build/PhotoQualityCheck
+# A scan package as the app exports it, then the skill's own tool on that package when numpy is here.
+swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift MeshRender.swift ScanPackage.swift PackageCheck.swift -o .build/PackageCheck
+.build/PackageCheck
+if python3 -c "import numpy" 2>/dev/null; then
+  ( cd ".build/package-check/unpacked/Box scan package"
+    T=skill/scan-to-part/tools/scan_tools.py
+    python3 "$T" measure scan/scan.stl --z 10 | grep -q "size: 40.00 x 30.00 x 20.00 mm"
+    python3 "$T" render scan/scan.stl compare --like scan/scan.json --beside scan/scan.stl >/dev/null
+    test -f compare/top.png
+    python3 "$T" compare scan/scan.stl scan/scan.stl | grep -q "^score" )
+  echo "scan_tools.py ran on the package"
+else
+  echo "numpy not installed: scan_tools.py was not run on the package"
+fi
 .build/PhotoQualityCheck
 # Real iOS-side LanClient against the real PhoneReceiver on loopback.
 swiftc -disable-sandbox -swift-version 5 -parse-as-library $SHARED_SOURCES Mesh.swift PhoneReceiver.swift LanAdvertiser.swift ReceiverCheck.swift -o .build/ReceiverCheck
@@ -15,6 +29,7 @@ swiftc -disable-sandbox -swift-version 5 -parse-as-library $SHARED_SOURCES Mesh.
 test -x .build/ThreeLayMacOS
 test -x build/ThreeLayMacOS.app/Contents/MacOS/ThreeLayMacOS
 test -f build/ThreeLayMacOS.app/Contents/Resources/convert_usdz.swift
+test -f build/ThreeLayMacOS.app/Contents/Resources/skill/scan-to-part/SKILL.md
 plutil -lint build/ThreeLayMacOS.app/Contents/Info.plist
 codesign --verify --deep build/ThreeLayMacOS.app
 echo "rebuild_check passed"

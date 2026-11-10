@@ -13,12 +13,37 @@ enum PhotoReconstruction {
         let quality: PhotoQuality.Report
         /// Set when a higher level failed first, so the user knows why the model is coarser.
         let fallbackNote: String?
+        /// A few of the photos as small JPEGs, kept for a scan package. nil when none could be saved.
+        let photos: URL?
+    }
+
+    /// One attempt: an Object Capture detail level and, for `.custom`, its triangle budget.
+    private struct Level {
+        let name: String
+        let detail: PhotogrammetrySession.Request.Detail
+        let polygons: UInt?
+    }
+
+    /// Triangle budgets for the model. The preset levels stop at 250k triangles (`.full`) and keep
+    /// finer detail only in texture maps, which an STL throws away. For printing the detail has to
+    /// be in the geometry, so the model is built at a custom level (macOS 14) with a larger budget.
+    /// Both stay well inside what `Mesh.load` accepts (10M triangles, 500 MB of STL).
+    static let printPolygons: UInt = 1_000_000
+    static let maximumPolygons: UInt = 3_000_000
+
+    /// Most detail first. A level that fails (usually for lack of memory) drops to the next one.
+    private static func levels(maximumDetail: Bool) -> [Level] {
+        let budget = maximumDetail ? maximumPolygons : printPolygons
+        return [
+            Level(name: "\(budget / 1_000_000)M-triangle", detail: .custom, polygons: budget),
+            Level(name: "Full", detail: .full, polygons: nil),
+            Level(name: "Medium", detail: .medium, polygons: nil),
+        ]
     }
 
     /// `archive` is a zip containing a folder of photos (HEIC, JPG or PNG). Returns the model's URL,
-    /// next to the archive. `progress` gets 0...1. `useRaw` tries Apple's unprocessed `.raw` level
-    /// first (up to ~30M triangles, so it needs a lot of memory and disk).
-    static func run(archive: URL, useRaw: Bool = false, progress: @escaping (Double) -> Void) async throws -> Built {
+    /// next to the archive. `progress` gets 0...1. `maximumDetail` asks for the larger triangle budget.
+    static func run(archive: URL, maximumDetail: Bool = false, progress: @escaping (Double) -> Void) async throws -> Built {
         guard PhotogrammetrySession.isSupported else {
             throw ScanError.message("This Mac cannot build models from photos. Build on the phone instead.")
         }
@@ -32,19 +57,21 @@ enum PhotoReconstruction {
         let quality = try await Task.detached(priority: .userInitiated) {
             try PhotoQuality.filter(photos: photos, rejected: rejected)
         }.value
+        // The originals are deleted after the build, so keep a few small copies for a scan package.
+        let kept = archive.deletingPathExtension().appendingPathExtension("photos")
+        let savedPhotos = await Task.detached(priority: .utility) { ScanPackage.savePhotos(from: photos, to: kept) }.value
         let output = archive.deletingPathExtension().appendingPathExtension("usdz")
         try? FileManager.default.removeItem(at: output)  // a leftover from an earlier failed run
 
-        // Most detail first. `.full` needs a lot of memory, so a failure drops one level and tries again.
-        var levels: [(PhotogrammetrySession.Request.Detail, String)] = [(.full, "Full"), (.medium, "Medium")]
-        if useRaw { levels.insert((.raw, "Raw"), at: 0) }
+        let levels = levels(maximumDetail: maximumDetail)
         var note: String?
         for (index, level) in levels.enumerated() {
             do {
-                try await build(photos: photos, output: output, detail: level.0, progress: progress)
-                return Built(url: output, detail: level.1, quality: quality, fallbackNote: note)
-            } catch let error as ScanError where index < levels.count - 1 {
-                note = "\(level.1) failed (\(error.localizedDescription))"
+                try await build(photos: photos, output: output, level: level, progress: progress)
+                return Built(url: output, detail: level.name, quality: quality, fallbackNote: note, photos: savedPhotos > 0 ? kept : nil)
+            } catch where index < levels.count - 1 {
+                // Any failure drops a level, also one thrown while the session is being set up.
+                note = "\(level.name) failed (\(error.localizedDescription))"
                 try? FileManager.default.removeItem(at: output)
                 continue
             }
@@ -52,12 +79,17 @@ enum PhotoReconstruction {
         throw ScanError.message("Model building ended without a result.")
     }
 
-    private static func build(photos: URL, output: URL, detail: PhotogrammetrySession.Request.Detail,
-                              progress: @escaping (Double) -> Void) async throws {
+    private static func build(photos: URL, output: URL, level: Level, progress: @escaping (Double) -> Void) async throws {
         var configuration = PhotogrammetrySession.Configuration()
         configuration.featureSensitivity = .high  // picks up fine texture like printed text and page edges
+        if let polygons = level.polygons {
+            configuration.customDetailSpecification.maximumPolygonCount = polygons
+            // Only the shape ends up in the STL, so do not spend memory on large texture maps.
+            configuration.customDetailSpecification.outputTextureMaps = .diffuseColor
+            configuration.customDetailSpecification.maximumTextureDimension = .oneK
+        }
         let session = try PhotogrammetrySession(input: photos, configuration: configuration)
-        try session.process(requests: [.modelFile(url: output, detail: detail)])
+        try session.process(requests: [.modelFile(url: output, detail: level.detail)])
         for try await result in session.outputs {
             switch result {
             case .requestProgress(_, let fraction): progress(fraction)
