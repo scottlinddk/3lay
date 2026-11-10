@@ -126,8 +126,20 @@ final class AppModel: ObservableObject {
         return LanClient(endpoint: endpoint, code: mac.code)
     }
 
+    /// Why a clean rebuild cannot be asked for, or nil when the Mac can do it.
+    private static func rebuildProblem(_ hello: LanHello, mac: PairedMac) -> String? {
+        switch hello.supportsRebuild {
+        case true?: return nil
+        case false?: return "\(mac.name) has no Anthropic API key yet. Save one in 3lay Mac under Clean rebuild, "
+            + "or switch the clean part option off. Your scan is kept on this phone."
+        case nil: return "\(mac.name) runs an older 3lay Mac that cannot rebuild scans as clean parts. "
+            + "Update it, or switch the clean part option off. Your scan is kept on this phone."
+        }
+    }
+
     /// Reconstructs on the phone, then sends the USDZ to the paired Mac. 3lay Mac converts it to STL.
-    func sendToMac(folder: URL, name: String) async {
+    /// `rebuild` also asks the Mac to rewrite the scan as a clean part with AI; `note` says what it is.
+    func sendToMac(folder: URL, name: String, rebuild: Bool = false, note: String = "") async {
         guard let mac = pairedMac else { showNearbyMac = true; return }
         let model = folder.appendingPathComponent("model.usdz")
         do {
@@ -136,6 +148,10 @@ final class AppModel: ObservableObject {
             let client = try await reachableClient(for: mac)
             // A stale code is reported clearly here. Failing mid-upload only shows a dropped connection.
             try await client.verifyCode()
+            if rebuild, let problem = Self.rebuildProblem(try await client.hello(), mac: mac) {
+                phase = .failed(problem)
+                return
+            }
             if !FileManager.default.fileExists(atPath: model.path) {
                 phase = .reconstructing(nil)
                 try await OnDeviceReconstruction.run(
@@ -143,7 +159,10 @@ final class AppModel: ObservableObject {
                     progress: { fraction in Task { @MainActor in self.phase = .reconstructing(fraction) } })
                 phase = .sendingToMac(name: mac.name)
             }
-            try await client.upload(file: model, as: Self.macFilename(name))
+            let filename = Self.macFilename(name)
+            try await client.upload(
+                file: model, as: rebuild ? filename.replacingOccurrences(of: ".usdz", with: LanProtocol.rebuildMarker + ".usdz") : filename,
+                note: rebuild ? note : nil)
             clearPendingCapture()
             phase = .sentToMac(name: mac.name)
         } catch LanError.wrongCode, LanError.lockedOut {
@@ -159,7 +178,8 @@ final class AppModel: ObservableObject {
 
     /// Sends the photos and lets the Mac build the model. Quicker for the phone and more detailed
     /// than building on the phone. Falls back to a clear message on a Mac that cannot do this yet.
-    func sendPhotosToMac(folder: URL, name: String) async {
+    /// `rebuild` also asks the Mac to rewrite the scan as a clean part with AI; `note` says what it is.
+    func sendPhotosToMac(folder: URL, name: String, rebuild: Bool = false, note: String = "") async {
         guard let mac = pairedMac else { showNearbyMac = true; return }
         var archive: URL?
         defer { archive.map { try? FileManager.default.removeItem(at: $0) } }
@@ -167,18 +187,23 @@ final class AppModel: ObservableObject {
             phase = .sendingToMac(name: mac.name)
             let client = try await reachableClient(for: mac)
             try await client.verifyCode()
-            guard let limit = try await client.hello().maxCaptureBytes else {
+            let hello = try await client.hello()
+            if rebuild, let problem = Self.rebuildProblem(hello, mac: mac) {
+                phase = .failed(problem)
+                return
+            }
+            guard let limit = hello.maxCaptureBytes else {
                 phase = .failed("\(mac.name) runs an older 3lay Mac that cannot build from photos. "
                     + "Update it, or choose Build on this phone. Your scan is kept on this phone.")
                 return
             }
             let zip = try CaptureArchive.make(
                 imagesDirectory: folder.appendingPathComponent("Images"),
-                name: Self.macFilename(name).replacingOccurrences(of: ".usdz", with: ""))
+                name: Self.macFilename(name).replacingOccurrences(of: ".usdz", with: "") + (rebuild ? LanProtocol.rebuildMarker : ""))
             archive = zip
             let size = (try? FileManager.default.attributesOfItem(atPath: zip.path)[.size] as? Int) ?? 0
             if size > limit { throw LanError.tooLarge(maxBytes: limit) }
-            try await client.upload(file: zip)
+            try await client.upload(file: zip, note: rebuild ? note : nil)
             clearPendingCapture()
             phase = .sentToMac(name: mac.name)
         } catch LanError.wrongCode, LanError.lockedOut {

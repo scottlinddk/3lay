@@ -35,6 +35,21 @@ Detail for printing has to be in the shape, because an STL has no texture. Apple
 
 Object Capture models stand along Y. USDZ scans are turned on import to stand along Z, on the plate.
 
+## Clean rebuild (optional, AI)
+
+A second path beside the scan, for mechanical parts. Under **Clean rebuild** save an Anthropic API key (kept in the login keychain), say what the object is, and choose **Rebuild as a clean part**. On the phone the same thing is the **Also rebuild as a clean part (AI)** switch on the *Capture complete* screen; it is only accepted when the Mac has a key.
+
+How it works (`PartRebuild.swift`):
+
+1. The Mac draws the scan from the top, front, right and one corner, without perspective (`MeshRender.swift`), and sends those pictures, the measurements and your description to Claude (`claude-opus-5-5`). Photos are not sent.
+2. Claude answers with a tree of simple solids as JSON: box, cylinder, cone, sphere, torus, extruded outline, combined with union, subtract and intersect (`SolidShape.swift`).
+3. The Mac builds that shape, measures it against the scan in both directions (`ShapeFit` in `SolidMesher.swift`) and sends the numbers, the worst places and pictures of the attempt back. Up to three rounds; the closest attempt wins.
+4. The result is a closed mesh in the scan's position. **Scan / Clean part** switches what is on the plate and what **Export placed STL** saves. **Save as OpenSCAD…** writes the same shape as editable source.
+
+What to expect: flat faces, right angles and round holes come out exact where the scan was bumpy, and the mesh is always closed. It is not more accurate than the scan it measures from: a scale error in the scan stays. Sharp edges are rounded by about the mesh grid (the longest side divided by 224); the OpenSCAD file has them sharp. Organic shapes do not fit simple solids, and the reported deviation says so. It costs API usage on your account for each round.
+
+`RebuildCheck.swift` covers everything except the call to Claude, which has not been run from this repository yet.
+
 ## Phone browser handoff
 
 The desktop window shows a local address and six-digit pairing code. On a phone connected to the same Wi-Fi network, open that address, enter the code, choose an STL, OBJ, or ASCII PLY file, and tap **Send to desktop**. Another uploader can use `PUT /upload/<URL-encoded filename>?code=<six-digit code>` with the raw file bytes and a `Content-Length` header. Uploads are capped at 100 MB (STL, OBJ, ASCII PLY or USDZ) and saved in `~/Library/Application Support/ThreeLayMacOS/inbox/`. The HTTP endpoint is local-network only in intent but binds to all interfaces; use it only on a trusted network.

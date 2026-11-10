@@ -20,10 +20,10 @@ let package = Package(
             path: ".",
             exclude: [
                 "shots",
-                "MeshCheck.swift", "ReceiverCheck.swift", "PhotoQualityCheck.swift", "convert_usdz.swift", "MECHANICS.md",
+                "MeshCheck.swift", "ReceiverCheck.swift", "PhotoQualityCheck.swift", "RebuildCheck.swift", "convert_usdz.swift", "MECHANICS.md",
                 "README.md", "build.sh", "project.yml", "sources.sh", "mechanics.json", "rebuild_check", "package.json"
             ],
-            sources: ["Mesh.swift", "UsdzConverter.swift", "PhotoReconstruction.swift", "PhotoQuality.swift", "LidarImport.swift", "LanAdvertiser.swift", "PhoneReceiver.swift", "ThreeLayMacOS.swift"],
+            sources: ["Mesh.swift", "UsdzConverter.swift", "PhotoReconstruction.swift", "PhotoQuality.swift", "LidarImport.swift", "SolidShape.swift", "SolidMesher.swift", "MeshRender.swift", "PartRebuild.swift", "LanAdvertiser.swift", "PhoneReceiver.swift", "ThreeLayMacOS.swift"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI")

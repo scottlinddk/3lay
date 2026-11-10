@@ -20,6 +20,10 @@ targets:
       - PhotoReconstruction.swift
       - PhotoQuality.swift
       - LidarImport.swift
+      - SolidShape.swift
+      - SolidMesher.swift
+      - MeshRender.swift
+      - PartRebuild.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift

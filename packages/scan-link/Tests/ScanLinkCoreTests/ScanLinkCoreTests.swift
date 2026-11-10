@@ -40,6 +40,35 @@ final class ScanLinkCoreTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(LanHello.self, from: Data(old.utf8)).supportsLidarBundles)
     }
 
+    func testRebuildRequestsAreRecognisedByName() {
+        XCTAssertTrue(LanProtocol.wantsRebuild("Scan 2026-11-10.rebuild.zip"))
+        XCTAssertTrue(LanProtocol.wantsRebuild("Scan.REBUILD.usdz"))
+        XCTAssertFalse(LanProtocol.wantsRebuild("Scan.zip"))
+        XCTAssertFalse(LanProtocol.wantsRebuild("rebuild.zip"))
+        XCTAssertFalse(LanProtocol.isLidarBundle("Scan.rebuild.zip"))
+        XCTAssertTrue(LanProtocol.isAcceptedUpload("Scan.rebuild.zip"))
+        XCTAssertTrue(LanProtocol.isAcceptedUpload("Scan.rebuild.usdz"))
+    }
+
+    func testUploadPathCarriesTheNote() throws {
+        XCTAssertEqual(LanProtocol.uploadPath(for: "a.zip", note: "  "), "/upload/a.zip")
+        let path = LanProtocol.uploadPath(for: "a.rebuild.zip", note: "bracket & 2 holes")
+        XCTAssertEqual(path, "/upload/a.rebuild.zip?note=bracket%20%26%202%20holes")
+        let items = try XCTUnwrap(URLComponents(string: "http://localhost\(path)")?.queryItems)
+        XCTAssertEqual(items.first { $0.name == LanProtocol.noteQuery }?.value, "bracket & 2 holes")
+        // Letters outside ASCII are escaped too, so the path is always a valid URL.
+        XCTAssertEqual(LanProtocol.uploadPath(for: "a.zip", note: "æ"), "/upload/a.zip?note=%C3%A6")
+        let long = LanProtocol.uploadPath(for: "a.zip", note: String(repeating: "x", count: 2000))
+        XCTAssertEqual(long.count, "/upload/a.zip?note=".count + LanProtocol.maxNoteLength)
+    }
+
+    func testHelloSaysWhetherTheMacCanRebuild() throws {
+        XCTAssertEqual(LanHello(name: "Mac").supportsRebuild, false)
+        XCTAssertEqual(LanHello(name: "Mac", rebuild: true).supportsRebuild, true)
+        let old = #"{"service":"threelaymacos","version":1,"name":"Old","maxBytes":1,"extensions":["stl"]}"#
+        XCTAssertNil(try JSONDecoder().decode(LanHello.self, from: Data(old.utf8)).supportsRebuild)
+    }
+
     func testHelloFromOlderMacHasNoCaptureLimit() throws {
         let old = #"{"service":"threelaymacos","version":1,"name":"Old","maxBytes":1,"extensions":["stl"]}"#
         XCTAssertNil(try JSONDecoder().decode(LanHello.self, from: Data(old.utf8)).maxCaptureBytes)

@@ -23,6 +23,12 @@ public enum LanProtocol {
     /// A LiDAR scan bundle: ARKit mesh plus posed photos (see docs/LAN_LINK.md). It is a zip too, so
     /// it passes `isCaptureArchive`; the Mac tells the two apart by this suffix.
     public static let lidarBundleSuffix = ".lidar.zip"
+    /// A scan the phone asks the Mac to also rebuild as a clean part with AI: the name ends in
+    /// `.rebuild` before its extension (`Scan.rebuild.zip`, `Scan.rebuild.usdz`).
+    public static let rebuildMarker = ".rebuild"
+    /// Optional upload query item: the user's description of the object, for the rebuild.
+    public static let noteQuery = "note"
+    public static let maxNoteLength = 500
     public static let codeLength = 6
 
     /// Failed code attempts allowed before the receiver locks for `lockoutSeconds`.
@@ -46,6 +52,11 @@ public enum LanProtocol {
         name.lowercased().hasSuffix(lidarBundleSuffix)
     }
 
+    /// The phone asked for a clean rebuild of this scan (see `rebuildMarker`).
+    public static func wantsRebuild(_ name: String) -> Bool {
+        (name as NSString).deletingPathExtension.lowercased().hasSuffix(rebuildMarker)
+    }
+
     /// A mesh file or a capture archive: everything the receiver takes.
     public static func isAcceptedUpload(_ name: String) -> Bool {
         isAcceptedFilename(name) || isCaptureArchive(name)
@@ -57,11 +68,18 @@ public enum LanProtocol {
     }
 
     /// The path a client PUTs a file to. The name is percent-encoded as a single path segment.
-    public static func uploadPath(for filename: String) -> String {
+    /// `note` (the user's description of the object) is added as a query item when not empty.
+    public static func uploadPath(for filename: String, note: String? = nil) -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/")
         let leaf = (filename as NSString).lastPathComponent
-        return uploadPrefix + (leaf.addingPercentEncoding(withAllowedCharacters: allowed) ?? leaf)
+        var path = uploadPrefix + (leaf.addingPercentEncoding(withAllowedCharacters: allowed) ?? leaf)
+        let trimmed = (note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            let value = String(trimmed.prefix(maxNoteLength)).addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")) ?? ""
+            path += "?\(noteQuery)=\(value)"
+        }
+        return path
     }
 }
 
@@ -78,8 +96,11 @@ public struct LanHello: Codable, Equatable {
     /// true when the Mac imports `*.lidar.zip` bundles. nil on an older Mac, which would treat the
     /// zip as a pile of photos and fail confusingly, so the phone checks this first.
     public var supportsLidarBundles: Bool?
+    /// true when the Mac can rebuild a scan as a clean part right now (it has an API key saved).
+    /// nil on an older Mac, false without a key.
+    public var supportsRebuild: Bool?
 
-    public init(name: String) {
+    public init(name: String, rebuild: Bool = false) {
         service = LanProtocol.serviceName
         version = LanProtocol.version
         self.name = name
@@ -87,5 +108,6 @@ public struct LanHello: Codable, Equatable {
         extensions = LanProtocol.acceptedExtensions
         maxCaptureBytes = LanProtocol.maxCaptureBytes
         supportsLidarBundles = true
+        supportsRebuild = rebuild
     }
 }

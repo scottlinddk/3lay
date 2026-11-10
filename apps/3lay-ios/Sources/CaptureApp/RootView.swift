@@ -6,6 +6,9 @@ public struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var pairingText = ""
     @State private var confirmDiscard = false
+    /// Also ask the Mac to rewrite the scan as a clean part with AI, and what the object is.
+    @State private var cleanPart = false
+    @State private var partNote = ""
 
     public init() {}
 
@@ -97,13 +100,21 @@ public struct RootView: View {
                     model.showNearbyMac = true
                 }
                 if model.pairedMac != nil {
+                    Toggle("Also rebuild as a clean part (AI)", isOn: $cleanPart)
+                    if cleanPart {
+                        TextField("What is it? For example: wall bracket with two holes", text: $partNote)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Your Mac asks Claude to rewrite the scan as a clean part made of simple shapes, and keeps the scan too. "
+                            + "Good for mechanical parts, not for figurines. Needs an Anthropic API key saved in 3lay Mac.")
+                            .font(.footnote).multilineTextAlignment(.center)
+                    }
                     Button("Send photos to \(model.pairedMac?.name ?? "my Mac")") {
-                        Task { await model.sendPhotosToMac(folder: folder, name: "Scan") }
+                        Task { await model.sendPhotosToMac(folder: folder, name: "Scan", rebuild: cleanPart, note: partNote) }
                     }.buttonStyle(.borderedProminent)
                     Text("Fastest. The Mac builds the model, with more detail than the phone can.")
                         .font(.footnote).multilineTextAlignment(.center)
                     Button("Build on this phone, then send") {
-                        Task { await model.sendToMac(folder: folder, name: "Scan") }
+                        Task { await model.sendToMac(folder: folder, name: "Scan", rebuild: cleanPart, note: partNote) }
                     }
                     Text("Slower and warms the phone. Works with any version of 3lay Mac.")
                         .font(.footnote).multilineTextAlignment(.center)

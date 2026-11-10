@@ -8,7 +8,13 @@ export SWIFT_MODULE_CACHE_PATH="$PWD/.cache"
 swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift MeshCheck.swift -o .build/MeshCheck
 .build/MeshCheck
 swiftc -disable-sandbox -swift-version 5 -parse-as-library PhotoQuality.swift PhotoQualityCheck.swift -o .build/PhotoQualityCheck
+# The clean-part engine, without the Claude call.
+swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift SolidShape.swift SolidMesher.swift MeshRender.swift RebuildCheck.swift -o .build/RebuildCheck
+.build/RebuildCheck
 .build/PhotoQualityCheck
+# The clean-part engine, without the Claude call.
+swiftc -disable-sandbox -swift-version 5 -parse-as-library Mesh.swift SolidShape.swift SolidMesher.swift MeshRender.swift RebuildCheck.swift -o .build/RebuildCheck
+.build/RebuildCheck
 # Real iOS-side LanClient against the real PhoneReceiver on loopback.
 swiftc -disable-sandbox -swift-version 5 -parse-as-library $SHARED_SOURCES Mesh.swift PhoneReceiver.swift LanAdvertiser.swift ReceiverCheck.swift -o .build/ReceiverCheck
 .build/ReceiverCheck
