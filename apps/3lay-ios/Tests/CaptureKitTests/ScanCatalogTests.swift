@@ -73,10 +73,15 @@ final class MeshChunkWriterTests: XCTestCase {
         values.withUnsafeBufferPointer { Data(buffer: $0) }
     }
 
+    /// Element bytes. (`withUnsafeBytes(of: array)` would give the bytes of the array object itself.)
+    private func indices16(_ values: [UInt16]) -> Data {
+        values.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
     func testChunksAreRotatedToZUpAndIndicesOffset() throws {
         // Two identical chunks; the second must have its indices shifted by the first's vertex count.
         let vertices = floats([0, 0, 0, 1, 0, 0, 0, 1, 0])
-        let faces = withUnsafeBytes(of: [UInt16(0), 1, 2]) { Data($0) }
+        let faces = indices16([0, 1, 2])
         let chunk = MeshChunk(
             transform: matrix_identity_float4x4, vertexData: vertices, vertexCount: 3,
             faceData: faces, faceCount: 1, bytesPerIndex: 2)
@@ -104,7 +109,7 @@ final class MeshChunkWriterTests: XCTestCase {
     func testFailureLeavesNoPartialFile() throws {
         let bad = MeshChunk(
             transform: matrix_identity_float4x4, vertexData: floats([0, 0, 0]), vertexCount: 1,
-            faceData: withUnsafeBytes(of: [UInt16(0), 1, 2]) { Data($0) }, faceCount: 1, bytesPerIndex: 2)
+            faceData: indices16([0, 1, 2]), faceCount: 1, bytesPerIndex: 2)  // vertices 1 and 2 do not exist
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ply-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
