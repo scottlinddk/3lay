@@ -70,6 +70,31 @@ import ScanLinkCore
         guard try await client.hello().maxCaptureBytes == LanProtocol.maxCaptureBytes else { fail("hello hides capture support") }
         guard try await client.hello().supportsLidarBundles == true else { fail("hello hides LiDAR bundle support") }
 
+        // Resumable upload: interrupt a chunked transfer, resume it with the same id, get the file
+        // byte for byte, imported exactly once, and a duplicate run changes nothing.
+        guard try await client.hello().supportsResumableUploads == true else { fail("hello hides resumable support") }
+        let transferId = UUID().uuidString
+        let digest = try LanTransferStore.sha256(of: big)
+        let importedBefore = box.urls.count
+        let attempt = Task { try await client.uploadResumable(file: big, transferId: transferId, sha256: digest, chunkBytes: 1 << 20) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        attempt.cancel()
+        _ = try? await attempt.value
+        try await client.uploadResumable(file: big, transferId: transferId, sha256: digest, chunkBytes: 1 << 20)
+        guard received.wait(timeout: .now() + 10) == .success, box.urls.count == importedBefore + 1,
+              let resumed = box.url, try Data(contentsOf: resumed) == payload else { fail("resumed upload corrupted or imported twice") }
+        try await client.uploadResumable(file: big, transferId: transferId, sha256: digest, chunkBytes: 1 << 20)
+        guard received.wait(timeout: .now() + 1) == .timedOut else { fail("a finished transfer was imported again") }
+        // A checksum that does not match is refused instead of imported.
+        let tampered = obj.deletingPathExtension().appendingPathExtension("obj")
+        try Data([9, 9, 9]).write(to: tampered)
+        let importedNow = box.urls.count
+        do {
+            try await client.uploadResumable(file: tampered, transferId: UUID().uuidString, sha256: String(repeating: "0", count: 64))
+            fail("a damaged transfer was accepted")
+        } catch LanTransferError.checksumMismatch {}
+        guard box.urls.count == importedNow else { fail("a damaged transfer was imported") }
+
         let junk = obj.deletingPathExtension().appendingPathExtension("exe")
         try Data([1]).write(to: junk)
         await expect(.unsupportedType, { try await client.upload(file: junk) }, "unsupported type")

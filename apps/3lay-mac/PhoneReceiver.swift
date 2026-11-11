@@ -13,6 +13,8 @@ final class PhoneReceiver {
     private var failedAttempts = 0
     private var lockedUntil = Date.distantPast
     private let inbox: URL
+    /// Resumable uploads in progress; partial files live in `inbox/.transfers` until complete.
+    private let transfers: LanTransferStore
     private let helloName: String
     private let onFile: (URL) -> Void
     /// The port actually bound. Differs from the requested one only when 0 was requested.
@@ -56,6 +58,8 @@ final class PhoneReceiver {
         port = UInt16(bigEndian: bound.sin_port)
         currentCode = code
         self.inbox = inbox
+        transfers = LanTransferStore(directory: inbox.appending(path: ".transfers", directoryHint: .isDirectory), inbox: inbox)
+        transfers.expire()
         helloName = name
         self.onFile = onFile
         DispatchQueue.global(qos: .utility).async { [self] in
@@ -131,7 +135,7 @@ final class PhoneReceiver {
     }
 
     private func respond(_ fd: Int32, _ status: String, _ contentType: String, _ body: Data) {
-        let header = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n"
+        let header = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, PATCH, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, Upload-Offset\r\n\r\n"
         sendAll(fd, Data(header.utf8))
         sendAll(fd, body)
     }
@@ -145,6 +149,74 @@ final class PhoneReceiver {
                 if n <= 0 { break }
                 sent += n
             }
+        }
+    }
+
+    private func header(_ name: String, in lines: [String]) -> String? {
+        lines.lazy.compactMap { line -> String? in
+            let p = line.split(separator: ":", maxSplits: 1)
+            return p.count == 2 && p[0].lowercased() == name.lowercased() ? p[1].trimmingCharacters(in: .whitespaces) : nil
+        }.first
+    }
+
+    /// `POST/GET/PATCH /transfers/<id>`: the resumable upload protocol (see LanTransferStore).
+    private func handleTransfer(
+        _ fd: Int32, method: String, components: URLComponents, headerLines: [String],
+        bytes: Data, bodyStart: Int, buffer: inout [UInt8]
+    ) {
+        let id = String(components.path.dropFirst(LanProtocol.transfersPrefix.count))
+        func json(_ status: String, _ info: LanTransferInfo) {
+            respond(fd, status, "application/json", (try? JSONEncoder().encode(info)) ?? Data())
+        }
+        func fail(_ error: LanTransferError) {
+            switch error {
+            case .invalidID: respond(fd, "400 Bad Request", "text/plain", Data(error.localizedDescription.utf8))
+            case .unsupportedName: respond(fd, "415 Unsupported Media Type", "text/plain", Data(error.localizedDescription.utf8))
+            case .tooLarge: respond(fd, "413 Payload Too Large", "text/plain", Data(error.localizedDescription.utf8))
+            case .unknown: respond(fd, "404 Not Found", "text/plain", Data(error.localizedDescription.utf8))
+            case .conflict: respond(fd, "409 Conflict", "text/plain", Data(error.localizedDescription.utf8))
+            case .checksumMismatch: respond(fd, "422 Unprocessable Entity", "text/plain", Data(error.localizedDescription.utf8))
+            case .offsetMismatch:
+                // The body is the current state, so the phone can continue from the right place.
+                if let info = try? transfers.info(id: id) { json("409 Conflict", info) }
+                else { respond(fd, "409 Conflict", "text/plain", Data(error.localizedDescription.utf8)) }
+            }
+        }
+        do {
+            switch method {
+            case "GET":
+                json("200 OK", try transfers.info(id: id))
+            case "POST":
+                transfers.expire()
+                let query = { (name: String) in components.queryItems?.first { $0.name == name }?.value }
+                guard let name = query("name"), let size = query("size").flatMap(Int.init), let sha = query("sha256") else {
+                    respond(fd, "400 Bad Request", "text/plain", Data("name, size and sha256 are required".utf8)); return
+                }
+                json("200 OK", try transfers.begin(id: id, name: name, size: size, sha256: sha))
+            default:  // PATCH
+                guard let offset = header("Upload-Offset", in: headerLines).flatMap(Int.init) else {
+                    respond(fd, "400 Bad Request", "text/plain", Data("Upload-Offset required".utf8)); return
+                }
+                guard let length = header("Content-Length", in: headerLines).flatMap(Int.init), length >= 0 else {
+                    respond(fd, "411 Length Required", "text/plain", Data("Content-Length required".utf8)); return
+                }
+                guard length <= 16 * 1024 * 1024 else {
+                    respond(fd, "413 Payload Too Large", "text/plain", Data("Chunks are at most 16 MB".utf8)); return
+                }
+                var body = Data(bytes[bodyStart..<min(bytes.count, bodyStart + length)])
+                while body.count < length {
+                    let n = recv(fd, &buffer, min(buffer.count, length - body.count), 0)
+                    if n <= 0 { return }  // the phone dropped: nothing was appended, it will resync
+                    body.append(contentsOf: buffer.prefix(n))
+                }
+                let result = try transfers.append(id: id, offset: offset, data: body)
+                json("200 OK", result.info)
+                if let file = result.completed { onFile(file) }
+            }
+        } catch let error as LanTransferError {
+            fail(error)
+        } catch {
+            respond(fd, "500 Internal Server Error", "text/plain", Data("Could not save transfer".utf8))
         }
     }
 
@@ -170,7 +242,7 @@ final class PhoneReceiver {
             respond(fd, "400 Bad Request", "text/plain", Data("Bad request".utf8)); return
         }
         let headerLines = header.components(separatedBy: "\r\n")
-        if method == "GET" {
+        if method == "GET" && !components.path.hasPrefix(LanProtocol.transfersPrefix) {
             switch components.path {
             case "/":
                 respond(fd, "200 OK", "text/html; charset=utf-8", Data(PhoneReceiver.uploadPage.utf8))
@@ -183,6 +255,14 @@ final class PhoneReceiver {
             default:
                 respond(fd, "404 Not Found", "text/plain", Data("Not found".utf8))
             }
+            return
+        }
+        if components.path.hasPrefix(LanProtocol.transfersPrefix), ["GET", "POST", "PATCH"].contains(method) {
+            if let failure = authorize(components, headerLines) {
+                respond(fd, failure.status, "text/plain", Data(failure.message.utf8)); return
+            }
+            handleTransfer(fd, method: method, components: components, headerLines: headerLines,
+                           bytes: bytes, bodyStart: end, buffer: &buffer)
             return
         }
         guard method == "PUT", components.path.hasPrefix(LanProtocol.uploadPrefix) else {

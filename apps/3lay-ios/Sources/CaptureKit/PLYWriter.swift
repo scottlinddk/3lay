@@ -117,6 +117,14 @@ public enum PLYWriter {
         }
     }
 
+    /// Moves `temporary` onto `url`, replacing what is there, in one step: readers see the old file or
+    /// the new one, never a mix. (`rename(2)` also works when `url` does not exist yet.)
+    private static func replace(_ url: URL, with temporary: URL) throws {
+        guard rename(temporary.path, url.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
     private static func stream(
         to url: URL, vertexCount: Int, triangleCount: Int, body: (Sink) throws -> Void
     ) throws {
@@ -144,11 +152,7 @@ public enum PLYWriter {
             try body(sink)
             try sink.flush()
             try handle.synchronize()
-            if fm.fileExists(atPath: url.path) {
-                _ = try fm.replaceItemAt(url, withItemAt: temporary)
-            } else {
-                try fm.moveItem(at: temporary, to: url)
-            }
+            try replace(url, with: temporary)
         } catch {
             try? fm.removeItem(at: temporary)
             throw error
