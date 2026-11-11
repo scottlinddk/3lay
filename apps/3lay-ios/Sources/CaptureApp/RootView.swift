@@ -83,7 +83,7 @@ public struct RootView: View {
                     Text("\(pending.photos) photos · \(pending.triangles / 1000)k triangles")
                 }
                 Button("Send to \(model.pairedMac?.name ?? "my Mac")") {
-                    Task { await model.sendLidarToMac(name: "LiDAR scan") }
+                    model.sendLidarToMac(name: "LiDAR scan")
                 }.buttonStyle(.borderedProminent)
                 Button("Change Mac or pairing code") { model.showNearbyMac = true }
                 Divider().padding(.vertical, 8)
@@ -103,28 +103,28 @@ public struct RootView: View {
                 }
                 if model.pairedMac != nil {
                     Button("Send photos to \(model.pairedMac?.name ?? "my Mac")") {
-                        Task { await model.sendPhotosToMac(folder: folder, name: "Scan") }
+                        model.sendPhotosToMac(folder: folder, name: "Scan")
                     }.buttonStyle(.borderedProminent)
                     Text("Fastest. The Mac builds the model, with more detail than the phone can.")
                         .font(.footnote).multilineTextAlignment(.center)
                     Button("Build on this phone, then send") {
-                        Task { await model.sendToMac(folder: folder, name: "Scan") }
+                        model.sendToMac(folder: folder, name: "Scan")
                     }
                     Text("Slower and warms the phone. Works with any version of 3lay Mac.")
                         .font(.footnote).multilineTextAlignment(.center)
                 }
                 // Local only: reads the photos on this phone, so it needs no Mac and no server.
                 Button("Build on this phone and preview") {
-                    Task { await model.buildAndPreview(folder: folder) }
+                    model.buildAndPreview(folder: folder)
                 }
                 Text("See the 3D model here first, rotate it or place it on a table. Reduced detail.")
                     .font(.footnote).multilineTextAlignment(.center)
                 if model.pairedHost != nil {
                     Button("Send photos to my server (best detail)") {
-                        Task { await model.submit(imagesDirectory: folder.appendingPathComponent("Images"), name: "Scan") }
+                        model.submit(imagesDirectory: folder.appendingPathComponent("Images"), name: "Scan")
                     }
                     Button("Reconstruct on this phone and upload") {
-                        Task { await model.submitOnDevice(folder: folder, name: "Scan") }
+                        model.submitOnDevice(folder: folder, name: "Scan")
                     }
                 }
                 Divider().padding(.vertical, 8)
@@ -137,28 +137,20 @@ public struct RootView: View {
             } message: {
                 Text("The photos on this phone are deleted and cannot be recovered.")
             }
-        case .reconstructing(let fraction):
-            if let fraction {
-                ProgressView("Reconstructing on this phone... \(Int(fraction * 100))%", value: fraction)
-            } else {
-                ProgressView("Reconstructing on this phone...")
-            }
-        case .submitting(let done, let total):
-            ProgressView("Uploading \(done) of \(total)", value: Double(done), total: Double(max(total, 1)))
+        case .working:
+            OperationView()
         case .viewing(let folder, let url):
             VStack(spacing: 8) {
                 ModelPreview(url: url)
                 if let mac = model.pairedMac {
                     Button("Send to \(mac.name)") {
-                        Task { await model.sendToMac(folder: folder, name: "Scan") }
+                        model.sendToMac(folder: folder, name: "Scan")
                     }.buttonStyle(.borderedProminent)
                 }
                 Text("This is the reduced-detail phone build. The Mac builds a sharper one from the photos.")
                     .font(.footnote).multilineTextAlignment(.center)
                 Button("Done") { model.recoverCapture() }
             }
-        case .sendingToMac(let name):
-            ProgressView("Packing and sending to \(name)...")
         case .sentToMac(let name):
             VStack(spacing: 8) {
                 Text("Sent to \(name)").font(.title2)

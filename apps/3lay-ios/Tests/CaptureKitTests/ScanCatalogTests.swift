@@ -82,10 +82,12 @@ final class MeshChunkWriterTests: XCTestCase {
             faceData: faces, faceCount: 1, bytesPerIndex: 2)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("chunks-\(UUID().uuidString).ply")
         defer { try? FileManager.default.removeItem(at: url) }
-        let summary = try PLYWriter.write(chunks: [chunk, chunk], to: url)
+        let summary: PLYWriter.Summary
+        do { summary = try PLYWriter.write(chunks: [chunk, chunk], to: url) } catch { return XCTFail("write threw: \(error)") }
         XCTAssertEqual(summary, PLYWriter.Summary(vertexCount: 6, triangleCount: 2))
 
-        let data = try Data(contentsOf: url)
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch { return XCTFail("read threw: \(error)") }
         let marker = try XCTUnwrap(data.range(of: Data("end_header\n".utf8)))
         let body = data[marker.upperBound...]
         XCTAssertEqual(body.count, 6 * 12 + 2 * 13)

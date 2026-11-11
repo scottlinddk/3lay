@@ -21,6 +21,17 @@ public struct ScanRecord: Codable, Equatable, Identifiable {
         case incomplete
     }
 
+    /// An upload in progress: the packed archive kept on disk and the id the Mac knows it by. After a
+    /// relaunch the same id and file resume where the Mac stopped, instead of packing and starting over.
+    public struct Transfer: Codable, Equatable {
+        public var id: String
+        /// Relative to the catalog root.
+        public var archive: String
+        /// File name the Mac receives. Fixed for the transfer, because the Mac matches on it.
+        public var filename: String
+        public init(id: String, archive: String, filename: String) { self.id = id; self.archive = archive; self.filename = filename }
+    }
+
     public let id: UUID
     public var kind: Kind
     public var name: String
@@ -35,15 +46,17 @@ public struct ScanRecord: Codable, Equatable, Identifiable {
     /// Server job created for this scan. Kept so a retry continues that job instead of opening a second one.
     public var serverJobId: String?
     public var lastError: String?
+    public var transfer: Transfer?
 
     public init(
         id: UUID = UUID(), kind: Kind, name: String = "", createdAt: Date = Date(), status: Status,
         folder: String, photoCount: Int = 0, triangleCount: Int = 0, destination: String? = nil,
-        serverJobId: String? = nil, lastError: String? = nil
+        serverJobId: String? = nil, lastError: String? = nil, transfer: Transfer? = nil
     ) {
         self.id = id; self.kind = kind; self.name = name; self.createdAt = createdAt; self.status = status
         self.folder = folder; self.photoCount = photoCount; self.triangleCount = triangleCount
         self.destination = destination; self.serverJobId = serverJobId; self.lastError = lastError
+        self.transfer = transfer
     }
 
     /// Whether the user can still send it.
@@ -76,6 +89,7 @@ public final class ScanCatalog {
 
     public var all: [ScanRecord] { records.sorted { $0.createdAt > $1.createdAt } }
     public func record(id: UUID) -> ScanRecord? { records.first { $0.id == id } }
+    public func archiveURL(_ transfer: ScanRecord.Transfer) -> URL { root.appendingPathComponent(transfer.archive) }
     public func folderURL(_ record: ScanRecord) -> URL { root.appendingPathComponent(record.folder, isDirectory: true) }
 
     /// Relative path of `folder` under the root, or its full path if it lies elsewhere.
@@ -195,6 +209,7 @@ public final class ScanCatalog {
         guard let record = record(id: id) else { return }
         let folder = folderURL(record)
         if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
+        if let transfer = record.transfer { try? FileManager.default.removeItem(at: root.appendingPathComponent(transfer.archive)) }
         try remove(id: id)
     }
 }
