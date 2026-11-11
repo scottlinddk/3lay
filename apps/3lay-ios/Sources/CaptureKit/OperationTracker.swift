@@ -86,8 +86,9 @@ public final class OperationTracker: ObservableObject {
         task = Task { [weak self] in
             let result: OperationOutcome
             do {
-                result = .succeeded(message: try await work(context))
-                try Task.checkCancellation()
+                let message = try await work(context)
+                try Task.checkCancellation()  // finished only because it ignored a cancel: still cancelled
+                result = .succeeded(message: message)
             } catch is CancellationError {
                 result = .cancelled
             } catch {

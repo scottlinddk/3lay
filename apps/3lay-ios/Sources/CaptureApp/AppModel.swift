@@ -59,6 +59,41 @@ final class AppModel: ObservableObject {
         let cancelled: () -> Void
     }
     var activeLidarFolder: URL? { activeLidarId.flatMap { catalog.record(id: $0) }.map { catalog.folderURL($0) } }
+    /// Every scan the app holds, newest first. Read fresh each time the home screen is drawn.
+    var scans: [ScanRecord] { catalog.all }
+
+    func rename(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try? catalog.update(id: id) { $0.name = trimmed }
+    }
+
+    /// Opens a scan from the list on its review screen.
+    func open(_ record: ScanRecord) {
+        let folder = catalog.folderURL(record)
+        switch record.kind {
+        case .object:
+            pendingCapture = folder
+            // A delivered scan is only kept for re-sending; it must not come back as "unsent" after a relaunch.
+            if record.status != .sent { try? captureStore.save(folder: folder) }
+            phase = .choosing(folder: folder)
+        case .lidar:
+            pendingLidar = PendingLidar(id: record.id, folder: folder, photos: record.photoCount, triangles: record.triangleCount)
+            phase = .lidarReady
+        }
+    }
+
+    func delete(_ record: ScanRecord) {
+        let folder = catalog.folderURL(record)
+        if record.kind == .object, pendingCapture?.standardizedFileURL == folder.standardizedFileURL {
+            try? captureStore.clear()
+            pendingCapture = nil
+        }
+        try? catalog.discard(id: record.id)
+        if pendingLidar?.id == record.id { pendingLidar = Self.latestLidar(in: catalog) }
+        objectWillChange.send()
+    }
+
     /// Scans that cannot be sent (the app stopped mid-write). Kept on disk until the user discards them.
     var unfinishedScans: [ScanRecord] { catalog.all.filter { $0.status == .incomplete } }
 
@@ -463,7 +498,7 @@ final class AppModel: ObservableObject {
 
     /// The catalog record for an Object Capture folder, created on first use (also for scans saved
     /// before the catalog existed).
-    private func objectRecord(for folder: URL) -> ScanRecord {
+    func objectRecord(for folder: URL) -> ScanRecord {
         let path = catalog.relativePath(of: folder)
         if let existing = catalog.all.first(where: { $0.kind == .object && $0.folder == path }) { return existing }
         let record = ScanRecord(kind: .object, name: "Scan", status: .saved, folder: path)
