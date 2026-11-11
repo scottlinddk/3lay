@@ -13,12 +13,20 @@ enum PhotoReconstruction {
         let quality: PhotoQuality.Report
         /// Set when a higher level failed first, so the user knows why the model is coarser.
         let fallbackNote: String?
+        /// The level asked for first, so a fallback is visible as requested != detail.
+        let requestedDetail: String
+        let durationSeconds: Double
+        let peakResidentMegabytes: Double
     }
 
     /// `archive` is a zip containing a folder of photos (HEIC, JPG or PNG). Returns the model's URL,
     /// next to the archive. `progress` gets 0...1. `useRaw` tries Apple's unprocessed `.raw` level
     /// first (up to ~30M triangles, so it needs a lot of memory and disk).
     static func run(archive: URL, useRaw: Bool = false, progress: @escaping (Double) -> Void) async throws -> Built {
+        let started = Date()
+        let memory = PeakMemorySampler()
+        memory.start()
+        defer { _ = memory.stop() }
         guard PhotogrammetrySession.isSupported else {
             throw ScanError.message("This Mac cannot build models from photos. Build on the phone instead.")
         }
@@ -42,7 +50,9 @@ enum PhotoReconstruction {
         for (index, level) in levels.enumerated() {
             do {
                 try await build(photos: photos, output: output, detail: level.0, progress: progress)
-                return Built(url: output, detail: level.1, quality: quality, fallbackNote: note)
+                return Built(
+                    url: output, detail: level.1, quality: quality, fallbackNote: note, requestedDetail: levels[0].1,
+                    durationSeconds: Date().timeIntervalSince(started), peakResidentMegabytes: memory.stop())
             } catch let error as ScanError where index < levels.count - 1 {
                 note = "\(level.1) failed (\(error.localizedDescription))"
                 try? FileManager.default.removeItem(at: output)

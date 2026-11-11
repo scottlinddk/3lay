@@ -13,6 +13,10 @@ public enum LanProtocol {
     public static let helloPath = "/api/hello"
     public static let authPath = "/api/auth"
     public static let uploadPrefix = "/upload/"
+    /// Resumable uploads (see `LanTransferStore`).
+    public static let transfersPrefix = "/transfers/"
+    /// Bytes per PATCH. Small enough to retry cheaply, large enough to keep Wi-Fi busy.
+    public static let transferChunkBytes = 4 * 1024 * 1024
 
     public static let maxUploadBytes = 100_000_000
     public static let acceptedExtensions = ["stl", "obj", "ply", "usdz"]
@@ -78,6 +82,8 @@ public struct LanHello: Codable, Equatable {
     /// true when the Mac imports `*.lidar.zip` bundles. nil on an older Mac, which would treat the
     /// zip as a pile of photos and fail confusingly, so the phone checks this first.
     public var supportsLidarBundles: Bool?
+    /// true when the Mac supports resumable `/transfers/` uploads. nil on an older Mac: use `PUT`.
+    public var supportsResumableUploads: Bool?
 
     public init(name: String) {
         service = LanProtocol.serviceName
@@ -87,5 +93,10 @@ public struct LanHello: Codable, Equatable {
         extensions = LanProtocol.acceptedExtensions
         maxCaptureBytes = LanProtocol.maxCaptureBytes
         supportsLidarBundles = true
+        supportsResumableUploads = true
     }
+}
+
+extension LanProtocol {
+    public static func transferPath(id: String) -> String { transfersPrefix + id }
 }

@@ -113,8 +113,27 @@ struct CloudItem: Identifiable {
                     status += " · \(built.detail) detail" + (built.fallbackNote.map { " (\($0))" } ?? "")
                     status += " · \(q.kept) photos" + (q.droppedBlurry > 0 ? " (\(q.droppedBlurry) blurry set aside)" : "")
                     status += q.withDepth > 0 ? " · LiDAR depth in \(q.withDepth) of \(q.total)" : " · no LiDAR depth found"
+                    writeReport(for: built, stl: stl)
                 }
             } catch { status = "Photo import failed: \(error.localizedDescription)" }
+        }
+    }
+
+    /// Saves `<model>.report.json` beside the model: levels, photo counts, time, memory and size. A failure to
+    /// write it never affects the import.
+    private func writeReport(for built: PhotoReconstruction.Built, stl: URL) {
+        guard let mesh else { return }
+        let vertices = mesh.vertices, triangles = mesh.faces.count
+        let outputBytes = (try? FileManager.default.attributesOfItem(atPath: built.url.path)[.size]) as? Int
+        Task.detached(priority: .utility) {
+            let report = ReconstructionReport(
+                createdAt: Date(), requestedDetail: built.requestedDetail, actualDetail: built.detail,
+                fallbackReason: built.fallbackNote, photosTotal: built.quality.total, photosUsed: built.quality.kept,
+                photosSetAsideBlurry: built.quality.droppedBlurry, photosWithDepth: built.quality.withDepth,
+                durationSeconds: built.durationSeconds, peakResidentMegabytes: built.peakResidentMegabytes,
+                outputBytes: outputBytes, triangleCount: triangles, vertexCount: vertices.count,
+                extentsMillimeters: OrientedExtents.measure(vertices))
+            try? report.write(next: built.url)
         }
     }
 

@@ -20,6 +20,7 @@ targets:
       - UsdzConverter.swift
       - PhotoReconstruction.swift
       - PhotoQuality.swift
+      - ReconstructionReport.swift
       - LidarImport.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift

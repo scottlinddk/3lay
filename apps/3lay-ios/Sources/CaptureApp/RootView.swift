@@ -5,7 +5,6 @@ import SwiftUI
 public struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var pairingText = ""
-    @State private var confirmDiscard = false
 
     public init() {}
 
@@ -24,152 +23,87 @@ public struct RootView: View {
                     + "Only continue if you started this from your own server.")
             }
             .sheet(isPresented: $model.showNearbyMac) { NearbyMacView().environmentObject(model) }
-            .padding()
     }
 
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .needsPairing:
-            VStack(spacing: 12) {
-                Text("Pair with your server").font(.title2)
-                Text("Open the pairing link from the web app on this phone, or paste it here.")
-                    .multilineTextAlignment(.center)
-                TextField("scan3d://pair?server=...&token=...", text: $pairingText)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                Button("Pair") {
-                    if let url = URL(string: pairingText) { model.receive(url: url) }
-                }
-                Divider().padding(.vertical, 8)
-                Text("Or send scans straight to a Mac on this Wi-Fi network.")
-                    .multilineTextAlignment(.center)
-                Button("Find a Mac nearby") { model.showNearbyMac = true }.buttonStyle(.borderedProminent)
-            }
-        case .ready:
-            VStack(spacing: 12) {
-                if model.pendingCapture != nil {
-                    Button("Resume saved capture") { model.recoverCapture() }.buttonStyle(.borderedProminent)
-                }
-                if let host = model.pairedHost { Text("Server: \(host)").font(.footnote) }
-                if let mac = model.pairedMac { Text("Mac: \(mac.name)").font(.footnote) }
-                if ObjectCaptureAvailability.isSupported {
-                    Button("Scan an object") { model.beginCapture() }.buttonStyle(.borderedProminent)
-                } else {
-                    Text("This device has no LiDAR, so guided capture is unavailable.")
-                        .multilineTextAlignment(.center)
-                }
-                if LidarCapture.isSupported {
-                    Button("Scan a room or large object (LiDAR)") { model.beginLidarCapture() }.buttonStyle(.borderedProminent)
-                    Text("Records the LiDAR mesh with photos and sends it to your Mac. For small objects use Scan an object.")
-                        .font(.footnote).multilineTextAlignment(.center)
-                }
-                Button(model.pairedMac == nil ? "Find a Mac nearby" : "Change Mac") { model.showNearbyMac = true }
-                if model.pairedHost != nil { Button("Unpair server", role: .destructive) { model.unpair() } }
-                if model.pairedMac != nil { Button("Forget Mac", role: .destructive) { model.forgetMac() } }
-            }
+        // The camera screens use the whole display. Everything else sits in the safe area.
         case .capturing:
             CaptureScreen()
         case .lidarCapturing:
-            LidarCaptureScreen()
+            if let folder = model.activeLidarFolder { LidarCaptureScreen(folder: folder) }
+        case .ready:
+            HomeView()
+        case .needsPairing:
+            welcome.padding()
         case .lidarReady:
-            VStack(spacing: 12) {
-                Text("LiDAR scan saved").font(.title2)
-                if let pending = model.pendingLidar {
-                    Text("\(pending.photos) photos · \(pending.triangles / 1000)k triangles")
-                }
-                Button("Send to \(model.pairedMac?.name ?? "my Mac")") {
-                    Task { await model.sendLidarToMac(name: "LiDAR scan") }
-                }.buttonStyle(.borderedProminent)
-                Button("Change Mac or pairing code") { model.showNearbyMac = true }
-                Divider().padding(.vertical, 8)
-                Button("Discard scan", role: .destructive) { confirmDiscard = true }
-            }
-            .confirmationDialog("Discard this scan?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-                Button("Discard scan", role: .destructive) { model.discardLidar() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("The scan on this phone is deleted and cannot be recovered.")
+            if let pending = model.pendingLidar, let record = model.catalog.record(id: pending.id) {
+                ReviewView(record: record, folder: pending.folder).id(record.id)
+            } else {
+                Color.clear.onAppear { model.recoverCapture() }
             }
         case .choosing(let folder):
-            VStack(spacing: 12) {
-                Text("Capture complete").font(.title2)
-                Button(model.pairedMac == nil ? "Find a Mac nearby" : "Change Mac or pairing code") {
-                    model.showNearbyMac = true
-                }
-                if model.pairedMac != nil {
-                    Button("Send photos to \(model.pairedMac?.name ?? "my Mac")") {
-                        Task { await model.sendPhotosToMac(folder: folder, name: "Scan") }
-                    }.buttonStyle(.borderedProminent)
-                    Text("Fastest. The Mac builds the model, with more detail than the phone can.")
-                        .font(.footnote).multilineTextAlignment(.center)
-                    Button("Build on this phone, then send") {
-                        Task { await model.sendToMac(folder: folder, name: "Scan") }
-                    }
-                    Text("Slower and warms the phone. Works with any version of 3lay Mac.")
-                        .font(.footnote).multilineTextAlignment(.center)
-                }
-                // Local only: reads the photos on this phone, so it needs no Mac and no server.
-                Button("Build on this phone and preview") {
-                    Task { await model.buildAndPreview(folder: folder) }
-                }
-                Text("See the 3D model here first, rotate it or place it on a table. Reduced detail.")
-                    .font(.footnote).multilineTextAlignment(.center)
-                if model.pairedHost != nil {
-                    Button("Send photos to my server (best detail)") {
-                        Task { await model.submit(imagesDirectory: folder.appendingPathComponent("Images"), name: "Scan") }
-                    }
-                    Button("Reconstruct on this phone and upload") {
-                        Task { await model.submitOnDevice(folder: folder, name: "Scan") }
-                    }
-                }
-                Divider().padding(.vertical, 8)
-                Button("Back (keep scan for later)") { model.leaveCapture() }
-                Button("Discard scan", role: .destructive) { confirmDiscard = true }
-            }
-            .confirmationDialog("Discard this scan?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-                Button("Discard scan", role: .destructive) { model.discardCapture() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("The photos on this phone are deleted and cannot be recovered.")
-            }
-        case .reconstructing(let fraction):
-            if let fraction {
-                ProgressView("Reconstructing on this phone... \(Int(fraction * 100))%", value: fraction)
-            } else {
-                ProgressView("Reconstructing on this phone...")
-            }
-        case .submitting(let done, let total):
-            ProgressView("Uploading \(done) of \(total)", value: Double(done), total: Double(max(total, 1)))
+            ReviewView(record: model.objectRecord(for: folder), folder: folder).id(folder)
+        case .working:
+            OperationView().padding()
         case .viewing(let folder, let url):
             VStack(spacing: 8) {
                 ModelPreview(url: url)
                 if let mac = model.pairedMac {
-                    Button("Send to \(mac.name)") {
-                        Task { await model.sendToMac(folder: folder, name: "Scan") }
-                    }.buttonStyle(.borderedProminent)
+                    Button("Send to \(mac.name)") { model.sendToMac(folder: folder, name: model.objectRecord(for: folder).name) }
+                        .buttonStyle(.borderedProminent)
                 }
                 Text("This is the reduced-detail phone build. The Mac builds a sharper one from the photos.")
                     .font(.footnote).multilineTextAlignment(.center)
                 Button("Done") { model.recoverCapture() }
             }
-        case .sendingToMac(let name):
-            ProgressView("Packing and sending to \(name)...")
+            .padding()
         case .sentToMac(let name):
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 48)).foregroundStyle(.green)
                 Text("Sent to \(name)").font(.title2)
-                Text("It opens in 3lay Mac on your Mac.")
-                Button("Scan another") { model.cancelCapture() }
+                Text("3lay Mac has the scan. Open it there to build and inspect the model.")
+                    .multilineTextAlignment(.center)
+                Button("Done") { model.cancelCapture() }.buttonStyle(.borderedProminent)
             }
+            .padding()
         case .submitted(let jobId, let photos):
-            VStack(spacing: 8) {
-                Text("Uploaded \(photos) photos").font(.title2)
-                Text("Job \(jobId.prefix(8)) is queued for reconstruction on your Mac.")
-                Button("Scan another") { model.cancelCapture() }
+            VStack(spacing: 12) {
+                Text(photos > 0 ? "Uploaded \(photos) photos" : "Uploaded").font(.title2)
+                Text("Job \(jobId.prefix(8)) is queued for reconstruction on your server.")
+                Button("Done") { model.cancelCapture() }.buttonStyle(.borderedProminent)
             }
+            .padding()
         case .failed(let message):
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 40)).foregroundStyle(.orange)
                 Text(message).multilineTextAlignment(.center)
-                Button("Back") { model.recoverCapture() }
+                Button("Back") { model.recoverCapture() }.buttonStyle(.borderedProminent)
+            }
+            .padding()
+        }
+    }
+
+    /// First launch: a Mac on the same Wi-Fi is the main path; a server is the alternative.
+    private var welcome: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "cube.transparent").font(.system(size: 56)).foregroundStyle(Color.accentColor)
+            Text("Welcome to 3lay").font(.largeTitle.bold())
+            Text("Scan with this phone, finish on your Mac. Open 3lay Mac on the same Wi-Fi network, then pair.")
+                .multilineTextAlignment(.center)
+            Button { model.showNearbyMac = true } label: {
+                Label("Find a Mac nearby", systemImage: "desktopcomputer").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large)
+            DisclosureGroup("Use a server instead") {
+                VStack(spacing: 8) {
+                    Text("Open the pairing link from the web app on this phone, or paste it here.").font(.footnote)
+                    TextField("scan3d://pair?server=...&token=...", text: $pairingText)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .textFieldStyle(.roundedBorder)
+                    Button("Pair") { if let url = URL(string: pairingText) { model.receive(url: url) } }
+                }
+                .padding(.top, 8)
             }
         }
     }

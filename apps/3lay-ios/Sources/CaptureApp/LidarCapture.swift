@@ -18,23 +18,34 @@ import simd
 final class LidarCapture: NSObject, ObservableObject, ARSessionDelegate {
     enum Failure: LocalizedError {
         case noFrame
-        var errorDescription: String? { "The camera has not produced a frame yet. Move the phone a little and try again." }
+        case notCapturing
+        case invalidBundle(String)
+        var errorDescription: String? {
+            switch self {
+            case .noFrame: return "The camera has not produced a frame yet. Move the phone a little and try again."
+            case .notCapturing: return "This scan is already being saved or was cancelled."
+            case .invalidBundle(let why): return "The scan is incomplete (\(why))."
+            }
+        }
+    }
+
+    /// Where the scan is in its life. Only `capturing` takes frames or starts a save, so Finish cannot
+    /// run twice and a cancelled scan cannot be saved.
+    enum State: Equatable {
+        case capturing
+        case finishing
+        case saved
+        case cancelling
+        case failed(String)
     }
 
     static var isSupported: Bool { ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) }
 
-    static let maxPhotos = 400
-    /// A photo needs this much movement or turning since the last one, and this long.
-    private static let minimumDistance: Float = 0.06
-    private static let minimumTurn: Float = 0.14  // radians, about 8 degrees
-    private static let minimumInterval = 0.4
-    /// Moving faster than this blurs the frame, so no photo is taken.
-    private static let maximumSpeed: Float = 0.35  // meters per second
-    private static let maximumTurnRate: Float = 0.8  // radians per second
 
     @Published private(set) var photoCount = 0
     @Published private(set) var triangleCount = 0
     @Published private(set) var warning: String?
+    @Published private(set) var state: State = .capturing
 
     let folder: URL
     private weak var session: ARSession?
@@ -42,13 +53,14 @@ final class LidarCapture: NSObject, ObservableObject, ARSessionDelegate {
     private let ciContext = CIContext()
     // Main thread only:
     private var startTimestamp: TimeInterval?
-    private var previous: (transform: simd_float4x4, time: TimeInterval)?
-    private var lastPhoto: (transform: simd_float4x4, time: TimeInterval)?
+    private var policy = CapturePolicy()
     private var encoding = false
     private var queued = 0
     private var lastMeshCount = Date.distantPast
+    private var finishTask: Task<Result, Error>?
     // encodeQueue only:
     private var photos: [LidarManifest.Photo] = []
+    private var acceptingWrites = true
 
     init(folder: URL) {
         self.folder = folder
@@ -63,63 +75,89 @@ final class LidarCapture: NSObject, ObservableObject, ARSessionDelegate {
         let configuration = ARWorldTrackingConfiguration()
         configuration.sceneReconstruction = .meshWithClassification
         configuration.environmentTexturing = .none
+        // Depth and confidence for every photo, so the Mac can fuse them instead of only using the final mesh.
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+            configuration.frameSemantics.insert(.sceneDepth)
+        }
         session.run(configuration)
     }
 
-    func cancel() {
+    /// Stops the session, waits for any write that is still running, and only then deletes the folder,
+    /// so a late photo or the mesh save cannot recreate files after they were removed.
+    @MainActor
+    func cancel() async {
+        guard state != .cancelling else { return }
+        state = .cancelling
         session?.pause()
+        finishTask?.cancel()
+        _ = try? await finishTask?.value  // a running save finishes first; its output is then deleted
+        await stopEncoding()
         try? FileManager.default.removeItem(at: folder)
+    }
+
+    /// Refuses further photo writes and returns once every queued one has completed or been skipped.
+    private func stopEncoding() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            encodeQueue.async {
+                self.acceptingWrites = false
+                done.resume()
+            }
+        }
     }
 
     // MARK: Frames
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        guard state == .capturing else { return }
         let now = frame.timestamp
         let transform = frame.camera.transform
-        defer { previous = (transform, now) }
         if startTimestamp == nil { startTimestamp = now }
 
         updateTriangleCount(frame)
+        sampleDiagnostics(frame)
 
-        guard case .normal = frame.camera.trackingState else {
-            setWarning("Tracking is poor. Move slower and point at textured surfaces.")
+        var tracking = false
+        if case .normal = frame.camera.trackingState { tracking = true }
+        let candidate = CapturePolicy.Frame(
+            transform: transform, time: now, trackingNormal: tracking, sharpness: nil,
+            exposureDuration: frame.camera.exposureDuration)
+        let buffer = frame.capturedImage
+        switch policy.evaluate(
+            candidate, thermal: Self.thermal, busy: encoding,
+            measureSharpness: { Self.sharpness(of: buffer) }
+        ) {
+        case .skip(let reason):
+            // Only reasons the person can act on are shown; the rest (too soon, same view) are silent.
+            setWarning(reason.guidance)
             return
-        }
-        setWarning(nil)
-        guard queued < Self.maxPhotos, !encoding else { return }
-
-        if let previous, now > previous.time {
-            let dt = Float(now - previous.time)
-            let speed = simd_distance(Self.position(transform), Self.position(previous.transform)) / dt
-            let turn = Self.angle(Self.forward(transform), Self.forward(previous.transform)) / dt
-            if speed > Self.maximumSpeed || turn > Self.maximumTurnRate { return }  // too blurry
-        }
-        if let last = lastPhoto {
-            guard now - last.time >= Self.minimumInterval else { return }
-            let moved = simd_distance(Self.position(transform), Self.position(last.transform))
-            let turned = Self.angle(Self.forward(transform), Self.forward(last.transform))
-            guard moved >= Self.minimumDistance || turned >= Self.minimumTurn else { return }
+        case .take:
+            setWarning(Self.thermal >= .serious ? "The phone is warm, so photos are taken less often." : nil)
         }
 
-        lastPhoto = (transform, now)
         encoding = true
         queued += 1
         let index = queued
-        let buffer = frame.capturedImage
         let intrinsics = frame.camera.intrinsics
         let seconds = now - (startTimestamp ?? now)
         let flat = Self.flatten(transform)
+        // Copied now: ARKit reuses these buffers. Depth belongs to this same frame as the photo.
+        let depth = Self.copyDepth(frame)
+        let exposure = LidarManifest.Exposure(
+            duration: frame.camera.exposureDuration, offset: frame.camera.exposureOffset,
+            ambientIntensity: frame.lightEstimate.map { Float($0.ambientIntensity) })
         encodeQueue.async { [weak self] in
             guard let self else { return }
             let name = String(format: "photos/%04d.jpg", index)
-            if let jpeg = try? self.ciContext.jpegRepresentation(
+            if self.acceptingWrites, let jpeg = try? self.ciContext.jpegRepresentation(
                 of: CIImage(cvPixelBuffer: buffer), colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                 options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.9]),
                (try? jpeg.write(to: self.folder.appendingPathComponent(name), options: .atomic)) != nil {
+                let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+                let k = [intrinsics[0][0], intrinsics[1][1], intrinsics[2][0], intrinsics[2][1]]
                 self.photos.append(LidarManifest.Photo(
-                    file: name, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer),
-                    timestamp: seconds, transform: flat,
-                    intrinsics: [intrinsics[0][0], intrinsics[1][1], intrinsics[2][0], intrinsics[2][1]]))
+                    file: name, width: width, height: height, timestamp: seconds, transform: flat, intrinsics: k,
+                    trackingState: "normal", exposure: exposure,
+                    depth: depth.flatMap { self.writeDepth($0, index: index, photoSize: (width, height), photoIntrinsics: k) }))
             }
             let count = self.photos.count
             DispatchQueue.main.async {
@@ -127,6 +165,91 @@ final class LidarCapture: NSObject, ObservableObject, ARSessionDelegate {
                 self.encoding = false
             }
         }
+    }
+
+    private var lastSample = Date.distantPast
+    /// About once a second: thermal state, memory, pending photo writes and how old this frame is.
+    private func sampleDiagnostics(_ frame: ARFrame) {
+        guard Date().timeIntervalSince(lastSample) >= 1 else { return }
+        lastSample = Date()
+        Diagnostics.record(Diagnostics.sample(
+            pendingWork: encoding ? 1 : 0, frameAge: ProcessInfo.processInfo.systemUptime - frame.timestamp))
+    }
+
+    // MARK: Quality
+
+    private static var thermal: CapturePolicy.Thermal {
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: return .nominal
+        case .fair: return .fair
+        case .serious: return .serious
+        case .critical: return .critical
+        @unknown default: return .serious
+        }
+    }
+
+    /// Relative sharpness of the camera's luma plane (see `CapturePolicy.sharpness`).
+    private static func sharpness(of buffer: CVPixelBuffer) -> Float? {
+        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
+        let width = CVPixelBufferGetWidthOfPlane(buffer, 0), height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        let luma = base.assumingMemoryBound(to: UInt8.self)
+        return CapturePolicy.sharpness(width: width, height: height) { x, y in luma[y * stride + x] }
+    }
+
+    // MARK: Depth
+
+    struct DepthCopy {
+        let depth: Data, confidence: Data
+        let width: Int, height: Int
+        let smoothed: Bool
+    }
+
+    /// Packed copies (no row padding) of this frame's depth (Float32 meters) and confidence (UInt8).
+    private static func copyDepth(_ frame: ARFrame) -> DepthCopy? {
+        guard let data = frame.sceneDepth, let confidence = data.confidenceMap,
+              let depth = packed(data.depthMap, bytesPerPixel: MemoryLayout<Float32>.size),
+              let conf = packed(confidence, bytesPerPixel: 1),
+              depth.width == conf.width, depth.height == conf.height else { return nil }
+        return DepthCopy(depth: depth.data, confidence: conf.data, width: depth.width, height: depth.height, smoothed: false)
+    }
+
+    private static func packed(_ buffer: CVPixelBuffer, bytesPerPixel: Int) -> (data: Data, width: Int, height: Int)? {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        let stride = CVPixelBufferGetBytesPerRow(buffer), row = width * bytesPerPixel
+        guard width > 0, height > 0, stride >= row else { return nil }
+        var data = Data(capacity: row * height)
+        for y in 0..<height { data.append(Data(bytes: base.advanced(by: y * stride), count: row)) }
+        return (data, width, height)
+    }
+
+    /// Writes `depth/NNNN.depth` and `.conf` (encodeQueue). nil if either write fails: the photo is still
+    /// kept, just without depth.
+    private func writeDepth(
+        _ copy: DepthCopy, index: Int, photoSize: (width: Int, height: Int), photoIntrinsics: [Float]
+    ) -> LidarManifest.Depth? {
+        guard acceptingWrites, let k = LidarGeometry.Intrinsics(photoIntrinsics) else { return nil }
+        let directory = folder.appendingPathComponent("depth")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let depthName = String(format: "depth/%04d.depth", index), confName = String(format: "depth/%04d.conf", index)
+        do {
+            try copy.depth.write(to: folder.appendingPathComponent(depthName), options: .atomic)
+            try copy.confidence.write(to: folder.appendingPathComponent(confName), options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(depthName))
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(confName))
+            return nil
+        }
+        let scaled = k.scaled(from: photoSize, to: (copy.width, copy.height))
+        return LidarManifest.Depth(
+            file: depthName, confidenceFile: confName, width: copy.width, height: copy.height,
+            intrinsics: scaled.array, timeOffset: 0, smoothed: copy.smoothed)
     }
 
     private func updateTriangleCount(_ frame: ARFrame) {
@@ -146,51 +269,94 @@ final class LidarCapture: NSObject, ObservableObject, ARSessionDelegate {
         let triangles: Int
     }
 
-    /// Stops the session and writes `mesh/scan.ply` and `manifest.json` into `folder`.
-    func finish(device: CaptureManifest.Device) throws -> Result {
+    /// Stops the session and writes `mesh/scan.ply` and `manifest.json` into `folder`, off the main
+    /// thread. The manifest is written last: a folder with a manifest is a complete scan.
+    @MainActor
+    func finish(device: CaptureManifest.Device) async throws -> Result {
+        guard state == .capturing else { throw Failure.notCapturing }
         guard let frame = session?.currentFrame else { throw Failure.noFrame }
-        let anchors = frame.anchors.compactMap { $0 as? ARMeshAnchor }
+        state = .finishing
+        // ARKit may keep changing its mesh buffers, so copy them now; everything after works on the copies.
+        let chunks = Self.snapshot(frame.anchors.compactMap { $0 as? ARMeshAnchor })
         session?.pause()
-        let (vertices, triangles) = Self.extractMesh(anchors)
-        let photos = encodeQueue.sync { self.photos }  // waits for photos still being written
-        let meshDirectory = folder.appendingPathComponent("mesh")
-        try FileManager.default.createDirectory(at: meshDirectory, withIntermediateDirectories: true)
-        try PLYWriter.write(vertices: vertices, triangles: triangles, to: meshDirectory.appendingPathComponent("scan.ply"))
-        let manifest = LidarManifest(
-            createdAt: Date(), device: device, vertexCount: vertices.count, triangleCount: triangles.count, photos: photos)
-        try CaptureManifest.encoder().encode(manifest).write(to: folder.appendingPathComponent("manifest.json"), options: .atomic)
-        return Result(folder: folder, photos: photos.count, triangles: triangles.count)
+        let folder = self.folder
+        let task = Task.detached(priority: .userInitiated) { [self] () -> Result in
+            let photos = await self.drainPhotos()  // waits for photos still being written
+            try Task.checkCancellation()
+            let meshDirectory = folder.appendingPathComponent("mesh")
+            try FileManager.default.createDirectory(at: meshDirectory, withIntermediateDirectories: true)
+            let summary = try Diagnostics.measure("lidar.writeMesh") {
+                try PLYWriter.write(chunks: chunks, to: meshDirectory.appendingPathComponent("scan.ply"))
+            }
+            try Task.checkCancellation()
+            let manifest = try Self.validated(LidarManifest(
+                createdAt: Date(), device: device, vertexCount: summary.vertexCount,
+                triangleCount: summary.triangleCount, photos: photos), in: folder)
+            try CaptureManifest.encoder().encode(manifest).write(to: folder.appendingPathComponent("manifest.json"), options: .atomic)
+            return Result(folder: folder, photos: photos.count, triangles: summary.triangleCount)
+        }
+        finishTask = task
+        do {
+            let result = try await task.value
+            if state == .finishing { state = .saved }
+            return result
+        } catch {
+            // Keep the photos, drop the half-made mesh so nothing looks like a finished scan.
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent("mesh"))
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent("manifest.json"))
+            if state == .finishing { state = .failed(error.localizedDescription) }
+            throw error
+        }
     }
 
-    /// All mesh anchors in one mesh, in meters. ARKit's world is Y up; the file is Z up (what the plate
-    /// and slicers expect): (x, y, z) becomes (x, -z, y), a plain rotation, so triangle winding is kept.
-    static func extractMesh(_ anchors: [ARMeshAnchor]) -> ([SIMD3<Float>], [SIMD3<UInt32>]) {
-        var vertices: [SIMD3<Float>] = []
-        var triangles: [SIMD3<UInt32>] = []
-        for anchor in anchors {
-            let geometry = anchor.geometry
-            let base = UInt32(vertices.count)
-            let source = geometry.vertices
-            let points = source.buffer.contents().advanced(by: source.offset)
-            for i in 0..<source.count {
-                let p = points.advanced(by: i * source.stride)
-                let local = SIMD4<Float>(
-                    p.loadUnaligned(as: Float.self), p.loadUnaligned(fromByteOffset: 4, as: Float.self),
-                    p.loadUnaligned(fromByteOffset: 8, as: Float.self), 1)
-                let world = anchor.transform * local
-                vertices.append(SIMD3(world.x, -world.z, world.y))
+    /// A bundle must pass `LidarBundleValidator` before it is declared complete. Depth that fails (missing or
+    /// misaligned) is dropped from that photo, because the photo itself is still good; anything else that
+    /// fails stops the save with the reason, rather than shipping a bundle the Mac cannot trust.
+    static func validated(_ manifest: LidarManifest, in folder: URL) throws -> LidarManifest {
+        var manifest = manifest
+        let issues = LidarBundleValidator.validate(manifest: manifest, in: folder)
+        guard !issues.isEmpty else { return manifest }
+        let badDepth = Set(issues.compactMap(\.photo))
+        for i in manifest.photos.indices where badDepth.contains(manifest.photos[i].file) && manifest.photos[i].depth != nil {
+            if let depth = manifest.photos[i].depth {
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(depth.file))
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(depth.confidenceFile))
             }
-            let faces = geometry.faces
-            let indices = faces.buffer.contents()
-            func index(_ n: Int) -> UInt32 {
-                let at = indices.advanced(by: n * faces.bytesPerIndex)
-                return faces.bytesPerIndex == 2 ? UInt32(at.loadUnaligned(as: UInt16.self)) : at.loadUnaligned(as: UInt32.self)
-            }
-            for f in 0..<faces.count {
-                triangles.append(SIMD3(base + index(f * 3), base + index(f * 3 + 1), base + index(f * 3 + 2)))
-            }
+            manifest.photos[i].depth = nil
         }
-        return (vertices, triangles)
+        // Rebuild so format and capabilities follow what is actually in the bundle.
+        let rebuilt = LidarManifest(
+            createdAt: manifest.createdAt, device: manifest.device, vertexCount: manifest.vertexCount,
+            triangleCount: manifest.triangleCount, photos: manifest.photos)
+        let remaining = LidarBundleValidator.validate(manifest: rebuilt, in: folder)
+        if let first = remaining.first { throw Failure.invalidBundle(first.description) }
+        return rebuilt
+    }
+
+    private func drainPhotos() async -> [LidarManifest.Photo] {
+        await withCheckedContinuation { (done: CheckedContinuation<[LidarManifest.Photo], Never>) in
+            encodeQueue.async { done.resume(returning: self.photos) }
+        }
+    }
+
+    /// Copies each anchor's vertices (tightly packed) and faces out of ARKit's buffers.
+    static func snapshot(_ anchors: [ARMeshAnchor]) -> [MeshChunk] {
+        anchors.compactMap { anchor in
+            let geometry = anchor.geometry
+            let vertices = geometry.vertices, faces = geometry.faces
+            guard vertices.count > 0, faces.count > 0 else { return nil }
+            var vertexData = Data(capacity: vertices.count * 12)
+            let base = vertices.buffer.contents().advanced(by: vertices.offset)
+            if vertices.stride == 12 {
+                vertexData.append(Data(bytes: base, count: vertices.count * 12))
+            } else {
+                for i in 0..<vertices.count { vertexData.append(Data(bytes: base.advanced(by: i * vertices.stride), count: 12)) }
+            }
+            let faceData = Data(bytes: faces.buffer.contents(), count: faces.count * 3 * faces.bytesPerIndex)
+            return MeshChunk(
+                transform: anchor.transform, vertexData: vertexData, vertexCount: vertices.count,
+                faceData: faceData, faceCount: faces.count, bytesPerIndex: faces.bytesPerIndex)
+        }
     }
 
     // MARK: Math

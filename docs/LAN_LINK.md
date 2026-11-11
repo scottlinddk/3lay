@@ -83,3 +83,22 @@ Not covered by anything automated, check by hand on a real phone and Mac:
 - [ ] Restart the Mac or change its IP: the phone finds it again by name.
 - [ ] Turn Wi-Fi off mid-send: the phone shows an error and keeps the scan.
 - [ ] Mac app launched by double-click (not from Terminal) saves into Application Support.
+
+## Resumable uploads
+
+`GET /api/hello` reports `supportsResumableUploads: true` on a Mac that has them. A phone that sees
+anything else uses the whole-file `PUT /upload/<name>` above, which is unchanged.
+
+| Request | Meaning |
+| --- | --- |
+| `POST /transfers/<id>?name=&size=&sha256=` | Create the transfer, or return the existing one. `<id>` is a UUID chosen by the phone and kept with the scan. Same id with a different name, size or checksum: `409`. |
+| `GET /transfers/<id>` | `{id, name, size, sha256, offset, complete}`. `404` when unknown or expired. |
+| `PATCH /transfers/<id>` + `Upload-Offset: N` | Append one chunk (at most 16 MB; the phone sends 4 MB). The offset must equal the Mac's byte count, otherwise `409` with the current state as the body. The final chunk is verified against `sha256` (mismatch: `422`, the transfer restarts at 0) and imported once. |
+
+All three need the pairing code like any other route. The Mac keeps the byte count on disk
+(`inbox/.transfers/<id>.part`), so a Mac restart loses nothing, and removes transfers after 24 hours.
+The phone reports progress from acknowledged bytes only. Chunk size, offsets and the retry
+policy live in `LanTransferStore` and `LanClient.uploadResumable`.
+
+Not covered: background `URLSession` transfers. The local network, authentication, file lifetime and OS
+suspension need device testing before the app can promise a transfer finishing in the background.

@@ -34,8 +34,15 @@ func convertUSDText() throws {
     try process.run()
     let data = output.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
-    guard process.terminationStatus == 0, data.count <= 150_000_000,
-          let text = String(data: data, encoding: .utf8),
+    guard process.terminationStatus == 0 else {
+        throw NSError(domain: "ThreeLayMacOS", code: 5, userInfo: [NSLocalizedDescriptionKey: "usdcat could not read this USDZ"])
+    }
+    // Say so when the model is simply too big, instead of the misleading "no supported surface mesh" below.
+    guard data.count <= 150_000_000 else {
+        throw NSError(domain: "ThreeLayMacOS", code: 6, userInfo: [NSLocalizedDescriptionKey:
+            "The model is too large to convert (\(data.count / 1_000_000) MB of mesh text, limit 150 MB). Build at Full or Medium detail instead of Raw."])
+    }
+    guard let text = String(data: data, encoding: .utf8),
           let pointsText = parseArray("point3f[] points", in: text) ?? parseArray("point3d[] points", in: text),
           let countsText = parseArray("int[] faceVertexCounts", in: text),
           let indicesText = parseArray("int[] faceVertexIndices", in: text)
