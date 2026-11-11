@@ -22,13 +22,16 @@ public struct Submission {
 
     public func submit(
         name: String, imagesDirectory: URL, device: CaptureManifest.Device, detail: String = "full",
-        jobId existingJob: String? = nil, onProgress: (Int, Int) -> Void = { _, _ in }
+        jobId existingJob: String? = nil, onJobCreated: (String) async -> Void = { _ in },
+        onProgress: (Int, Int) -> Void = { _, _ in }
     ) async throws -> SubmissionResult {
         let (manifest, manifestURL) = try BundleWriter.write(
             imagesDirectory: imagesDirectory, device: device)
         let job: String
         if let existingJob { job = existingJob } else {
             job = try await api.createJob(name: name, sourceKind: "photos").id
+            // Remember it before anything can fail, so a retry continues this job instead of opening another.
+            await onJobCreated(job)
         }
         let images = manifest.images
         let total = images.count + 1

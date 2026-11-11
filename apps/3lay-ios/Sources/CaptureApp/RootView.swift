@@ -64,13 +64,18 @@ public struct RootView: View {
                         .font(.footnote).multilineTextAlignment(.center)
                 }
                 Button(model.pairedMac == nil ? "Find a Mac nearby" : "Change Mac") { model.showNearbyMac = true }
+                if !model.unfinishedScans.isEmpty {
+                    Text("\(model.unfinishedScans.count) unfinished scan(s) from an interrupted save use storage.")
+                        .font(.footnote).multilineTextAlignment(.center)
+                    Button("Discard unfinished scans", role: .destructive) { model.discardUnfinishedScans() }
+                }
                 if model.pairedHost != nil { Button("Unpair server", role: .destructive) { model.unpair() } }
                 if model.pairedMac != nil { Button("Forget Mac", role: .destructive) { model.forgetMac() } }
             }
         case .capturing:
             CaptureScreen()
         case .lidarCapturing:
-            LidarCaptureScreen()
+            if let folder = model.activeLidarFolder { LidarCaptureScreen(folder: folder) }
         case .lidarReady:
             VStack(spacing: 12) {
                 Text("LiDAR scan saved").font(.title2)

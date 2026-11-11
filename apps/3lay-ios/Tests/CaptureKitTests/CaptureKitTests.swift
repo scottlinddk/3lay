@@ -169,7 +169,15 @@ final class CaptureKitTests: XCTestCase {
         let sub = Submission(api: api, uploader: up)
         // First attempt dies when the task is created, after every upload finished.
         server.beforeRequest = { r in if r.path.hasSuffix("tasks") { throw FakeServer.Dropped() } }
-        do { _ = try await sub.submit(name: "x", imagesDirectory: dir, device: device); XCTFail() } catch {}
+        let reported = Box()
+        do {
+            _ = try await sub.submit(
+                name: "x", imagesDirectory: dir, device: device, onJobCreated: { await reported.set($0) })
+            XCTFail()
+        } catch {}
+        // The job id was reported before the failure, so the app can store it and retry on that job.
+        let storedJob = await reported.value
+        XCTAssertNotNil(storedJob)
         server.beforeRequest = nil
         let before = server.uploads.count
         let result = try await sub.submit(name: "x", imagesDirectory: dir, device: device, jobId: "job1")
@@ -177,6 +185,11 @@ final class CaptureKitTests: XCTestCase {
         XCTAssertEqual(server.tasks.count, 1)
         // The photo is re-sent as a new upload only if the server does not already hold it.
         XCTAssertLessThanOrEqual(server.uploads.count, before + 2)
+    }
+
+    private actor Box {
+        var value: String?
+        func set(_ v: String) { value = v }
     }
 
     func testPairingLinkRejectsInsecureAndMalformedLinks() {

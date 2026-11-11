@@ -32,14 +32,26 @@ final class AppModel: ObservableObject {
     @Published var showNearbyMac = false
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var pendingCapture: URL?
-    /// A finished LiDAR scan that has not reached the Mac yet. Kept in memory only, so after an app
-    /// restart it is no longer offered (unlike Object Capture scans, which are recovered).
+    /// A finished LiDAR scan that has not reached the Mac yet. Backed by the scan catalog, so it is
+    /// recovered after an app restart like Object Capture scans.
     @Published private(set) var pendingLidar: PendingLidar?
+    /// The catalog record of the LiDAR scan being captured right now.
+    @Published private(set) var activeLidarId: UUID?
 
     struct PendingLidar: Equatable {
+        let id: UUID
         let folder: URL
         let photos: Int
         let triangles: Int
+    }
+    let catalog = ScanCatalog.standard()
+    var activeLidarFolder: URL? { activeLidarId.flatMap { catalog.record(id: $0) }.map { catalog.folderURL($0) } }
+    /// Scans that cannot be sent (the app stopped mid-write). Kept on disk until the user discards them.
+    var unfinishedScans: [ScanRecord] { catalog.all.filter { $0.status == .incomplete } }
+
+    func discardUnfinishedScans() {
+        for record in unfinishedScans { try? catalog.discard(id: record.id) }
+        objectWillChange.send()
     }
     var pairedHost: String? { pairing?.server.host }
     var isPaired: Bool { pairing != nil || pairedMac != nil }
@@ -55,8 +67,24 @@ final class AppModel: ObservableObject {
         pairedMac = mac
         let folder = captureStore.load()
         pendingCapture = folder
-        phase = folder.map { Phase.choosing(folder: $0) }
-            ?? ((link == nil && mac == nil) ? .needsPairing : .ready)
+        // Settle what a crash or force-quit left behind: complete scans become retryable, torn ones are
+        // marked incomplete (never deleted automatically), and delivered scans past retention are removed.
+        _ = try? catalog.reconcile()
+        _ = try? catalog.pruneDelivered()
+        let lidar = Self.latestLidar(in: catalog)
+        pendingLidar = lidar
+        if let folder {
+            phase = .choosing(folder: folder)
+        } else if lidar != nil {
+            phase = .lidarReady
+        } else {
+            phase = (link == nil && mac == nil) ? .needsPairing : .ready
+        }
+    }
+
+    private static func latestLidar(in catalog: ScanCatalog) -> PendingLidar? {
+        guard let r = catalog.all.first(where: { $0.kind == .lidar && $0.isRecoverable }) else { return nil }
+        return PendingLidar(id: r.id, folder: catalog.folderURL(r), photos: r.photoCount, triangles: r.triangleCount)
     }
 
     /// Called for deep links and pasted text. Never pairs on its own: a crafted link must not be
@@ -213,18 +241,50 @@ final class AppModel: ObservableObject {
     /// Needs a paired Mac first: a LiDAR scan has nowhere else to go (the server cannot use it).
     func beginLidarCapture() {
         guard pairedMac != nil else { showNearbyMac = true; return }
+        let folder = catalog.root.appendingPathComponent("lidar-captures/\(UUID().uuidString)", isDirectory: true)
+        let record = ScanRecord(kind: .lidar, name: "LiDAR scan", status: .capturing, folder: catalog.relativePath(of: folder))
+        do {
+            try catalog.upsert(record)
+        } catch {
+            phase = .failed("Could not start a scan: \(error.localizedDescription)")
+            return
+        }
+        activeLidarId = record.id
         phase = .lidarCapturing
     }
 
+    /// Finish was pressed: from here a crash leaves a `saving` record that recovery can sort out.
+    func lidarCaptureSaving() {
+        guard let id = activeLidarId else { return }
+        try? catalog.update(id: id) { $0.status = .saving }
+    }
+
     func lidarCaptureFinished(folder: URL, photos: Int, triangles: Int) {
-        pendingLidar = PendingLidar(folder: folder, photos: photos, triangles: triangles)
+        guard let id = activeLidarId else { return }
+        try? catalog.update(id: id) { $0.status = .saved; $0.photoCount = photos; $0.triangleCount = triangles; $0.lastError = nil }
+        pendingLidar = PendingLidar(id: id, folder: folder, photos: photos, triangles: triangles)
+        activeLidarId = nil
         phase = .lidarReady
     }
 
-    func discardLidar() {
-        if let folder = pendingLidar?.folder { try? FileManager.default.removeItem(at: folder) }
-        pendingLidar = nil
+    /// Saving failed. The photos stay on disk, the record becomes `incomplete`: it is not offered for
+    /// sending, and shows up for discarding after a relaunch.
+    func lidarCaptureFailed(_ message: String) {
+        guard let id = activeLidarId else { return }
+        try? catalog.update(id: id) { $0.status = .incomplete; $0.lastError = message }
+    }
+
+    /// The capture screen already deleted the files. Drop the record and go back.
+    func lidarCaptureCancelled() {
+        if let id = activeLidarId { try? catalog.remove(id: id) }
+        activeLidarId = nil
         phase = isPaired ? .ready : .needsPairing
+    }
+
+    func discardLidar() {
+        if let id = pendingLidar?.id { try? catalog.discard(id: id) }
+        pendingLidar = Self.latestLidar(in: catalog)
+        phase = pendingLidar != nil ? .lidarReady : (isPaired ? .ready : .needsPairing)
     }
 
     /// Zips the LiDAR bundle as `<name>.lidar.zip` and sends it. 3lay Mac imports the mesh as is.
@@ -232,12 +292,14 @@ final class AppModel: ObservableObject {
         guard let mac = pairedMac, let pending = pendingLidar else { showNearbyMac = true; return }
         var archive: URL?
         defer { archive.map { try? FileManager.default.removeItem(at: $0) } }
+        try? catalog.update(id: pending.id) { $0.status = .sending; $0.destination = mac.name }
         do {
             phase = .sendingToMac(name: mac.name)
             let client = try await reachableClient(for: mac)
             try await client.verifyCode()
             let hello = try await client.hello()
             guard hello.supportsLidarBundles == true, let limit = hello.maxCaptureBytes else {
+                markLidarFailed(pending.id, "The Mac is too old to import LiDAR scans.")
                 phase = .failed("\(mac.name) runs an older 3lay Mac that cannot import LiDAR scans. "
                     + "Update it first. Your scan is kept on this phone.")
                 return
@@ -249,15 +311,21 @@ final class AppModel: ObservableObject {
             let size = (try? FileManager.default.attributesOfItem(atPath: zip.path)[.size] as? Int) ?? 0
             if size > limit { throw LanError.tooLarge(maxBytes: limit) }
             try await client.upload(file: zip)
-            try? FileManager.default.removeItem(at: pending.folder)
-            pendingLidar = nil
+            try? catalog.discard(id: pending.id)  // delivered: LiDAR sources are not kept
+            pendingLidar = Self.latestLidar(in: catalog)
             phase = .sentToMac(name: mac.name)
         } catch LanError.wrongCode, LanError.lockedOut {
+            markLidarFailed(pending.id, "The Mac did not accept the code.")
             phase = .failed("\(mac.name) did not accept the code. If you made a new code on the Mac, "
                 + "open Nearby Mac and enter it again. Your scan is kept on this phone.")
         } catch {
+            markLidarFailed(pending.id, error.localizedDescription)
             phase = .failed("Could not send to \(mac.name): \(error.localizedDescription) Your scan is kept on this phone.")
         }
+    }
+
+    private func markLidarFailed(_ id: UUID, _ message: String) {
+        try? catalog.update(id: id) { $0.status = .failed; $0.lastError = message }
     }
 
     // MARK: Progress
@@ -279,7 +347,7 @@ final class AppModel: ObservableObject {
     /// Zipping hundreds of photos is slow, synchronous file work. Run on the main actor it froze the UI.
     nonisolated private static func pack(imagesDirectory: URL, name: String) async throws -> URL {
         try await Task.detached(priority: .userInitiated) {
-            try CaptureArchive.make(imagesDirectory: imagesDirectory, name: name)
+            try Diagnostics.measure("archive.make") { try CaptureArchive.make(imagesDirectory: imagesDirectory, name: name) }
         }.value
     }
 
@@ -290,7 +358,18 @@ final class AppModel: ObservableObject {
         return "\(safe.isEmpty ? "Scan" : safe) \(stamp).usdz"
     }
 
+    /// The catalog record for an Object Capture folder, created on first use (also for scans saved
+    /// before the catalog existed).
+    private func objectRecord(for folder: URL) -> ScanRecord {
+        let path = catalog.relativePath(of: folder)
+        if let existing = catalog.all.first(where: { $0.kind == .object && $0.folder == path }) { return existing }
+        let record = ScanRecord(kind: .object, name: "Scan", status: .saved, folder: path)
+        try? catalog.upsert(record)
+        return record
+    }
+
     func captureFinished(folder: URL) {
+        _ = objectRecord(for: folder)
         pendingCapture = folder
         do {
             try captureStore.save(folder: folder)
@@ -302,7 +381,7 @@ final class AppModel: ObservableObject {
 
     func recoverCapture() {
         if let folder = pendingCapture { phase = .choosing(folder: folder) }
-        else if pendingLidar != nil { phase = .lidarReady }
+        else if let lidar = Self.latestLidar(in: catalog) { pendingLidar = lidar; phase = .lidarReady }
         else { phase = isPaired ? .ready : .needsPairing }
     }
 
@@ -313,12 +392,22 @@ final class AppModel: ObservableObject {
 
     /// Deletes the unsent scan for good. Callers must have asked the user first.
     func discardCapture() {
-        if let folder = pendingCapture { try? FileManager.default.removeItem(at: folder) }
-        clearPendingCapture()
+        if let folder = pendingCapture {
+            try? catalog.discard(id: objectRecord(for: folder).id)  // removes the files and the record
+            try? FileManager.default.removeItem(at: folder)
+        }
+        // Not clearPendingCapture(): that would mark the (now deleted) scan as delivered.
+        try? captureStore.clear()
+        pendingCapture = nil
         phase = isPaired ? .ready : .needsPairing
     }
 
     private func clearPendingCapture() {
+        if let folder = pendingCapture {
+            // Delivered: kept on disk for the retention period, then removed by `pruneDelivered`.
+            let record = objectRecord(for: folder)
+            try? catalog.update(id: record.id) { $0.status = .sent }
+        }
         try? captureStore.clear()
         pendingCapture = nil
     }
@@ -339,9 +428,15 @@ final class AppModel: ObservableObject {
         let store = FileUploadStore()
         let submission = Submission(api: api, uploader: ResumableUploader(api: api, store: store))
         phase = .submitting(done: 0, total: 1)
+        // The scan's folder is the Images folder's parent; its record remembers the job across retries.
+        let record = objectRecord(for: imagesDirectory.deletingLastPathComponent())
         do {
             let result = try await submission.submit(
                 name: name, imagesDirectory: imagesDirectory, device: Self.device,
+                jobId: record.serverJobId,
+                onJobCreated: { id in
+                    await MainActor.run { try? self.catalog.update(id: record.id) { $0.serverJobId = id; $0.destination = pairing.server.host } }
+                },
                 onProgress: { done, total in
                     Task { @MainActor in self.uploadProgress(done: done, total: total) }
                 })
