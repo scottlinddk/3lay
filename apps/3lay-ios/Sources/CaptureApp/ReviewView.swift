@@ -20,68 +20,88 @@ struct ReviewView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                ScanThumbnailView(folder: folder, kind: record.kind, size: 140)
-                    .padding(.top, 8)
-                TextField("Name", text: $name)
-                    .textFieldStyle(.roundedBorder)
-                    .submitLabel(.done)
-                    .accessibilityLabel("Scan name")
-                VStack(spacing: 4) {
-                    Text(summary).font(.subheadline)
-                    Text(destination).font(.footnote).foregroundStyle(.secondary)
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(spacing: 12) {
+                        ScanThumbnailView(folder: folder, kind: record.kind, size: 140)
+                            .accessibilityHidden(true)
+                        Text(summary).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 }
-                .multilineTextAlignment(.center)
-
-                if let mac = model.pairedMac {
-                    Button { send() } label: {
-                        Label("Send to \(mac.name)", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    if record.kind == .object {
-                        Text("The Mac builds the model from your photos, with more detail than the phone can.")
-                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    }
-                } else {
-                    Button { model.showNearbyMac = true } label: {
-                        Label("Find a Mac nearby", systemImage: "desktopcomputer").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
+                Section("Scan name") {
+                    TextField("Name", text: $name)
+                        .submitLabel(.done)
+                        .accessibilityLabel("Scan name")
                 }
-
-                Menu("More options") {
-                    if model.pairedMac != nil {
-                        Button("Change Mac or code", systemImage: "desktopcomputer") { model.showNearbyMac = true }
-                    }
-                    if record.kind == .object {
-                        if model.pairedMac != nil {
-                            Button("Build on this phone, then send", systemImage: "iphone") {
-                                commitName(); model.sendToMac(folder: folder, name: name)
+                Section {
+                    Label(destination, systemImage: "desktopcomputer")
+                    if record.kind == .object || model.pairedMac != nil {
+                        Menu("More options") {
+                            if model.pairedMac != nil {
+                                Button("Change Mac or code", systemImage: "desktopcomputer") { model.showNearbyMac = true }
+                            }
+                            if record.kind == .object {
+                                if model.pairedMac != nil {
+                                    Button("Build on this phone, then send", systemImage: "iphone") {
+                                        commitName(); model.sendToMac(folder: folder, name: name)
+                                    }
+                                }
+                                Button("Preview on this phone", systemImage: "cube") {
+                                    commitName(); model.buildAndPreview(folder: folder)
+                                }
+                                if model.pairedHost != nil {
+                                    Button("Send photos to my server", systemImage: "icloud.and.arrow.up") {
+                                        commitName(); model.submit(imagesDirectory: folder.appendingPathComponent("Images"), name: name)
+                                    }
+                                    Button("Build on this phone and upload", systemImage: "iphone.and.arrow.forward") {
+                                        commitName(); model.submitOnDevice(folder: folder, name: name)
+                                    }
+                                }
                             }
                         }
-                        Button("Preview on this phone", systemImage: "cube") {
-                            commitName(); model.buildAndPreview(folder: folder)
-                        }
-                        if model.pairedHost != nil {
-                            Button("Send photos to my server", systemImage: "icloud.and.arrow.up") {
-                                commitName(); model.submit(imagesDirectory: folder.appendingPathComponent("Images"), name: name)
-                            }
-                            Button("Build on this phone and upload", systemImage: "iphone.and.arrow.forward") {
-                                commitName(); model.submitOnDevice(folder: folder, name: name)
-                            }
-                        }
-                    }
-                }
 
-                Divider()
-                Button("Save for later") { commitName(); model.leaveCapture() }
-                Button("Discard scan", role: .destructive) { confirmDiscard = true }
+                    }
+                } header: {
+                    Text("Destination")
+                } footer: {
+                    Text("Your scan stays on this phone until you send or delete it.")
+                }
+                Section {
+                    Button("Discard scan", role: .destructive) { confirmDiscard = true }
+                }
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Review Scan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { commitName(); model.leaveCapture() }
+                        .accessibilityHint("Saves this scan and returns to your scans")
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 8) {
+                    if let mac = model.pairedMac {
+                        Button(action: send) {
+                            Label("Send to \(mac.name)", systemImage: "paperplane.fill")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                    } else {
+                        Button { model.showNearbyMac = true } label: {
+                            Label("Find a Mac nearby", systemImage: "desktopcomputer")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding()
+                .background(.bar)
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .navigationTitle("Review")
         .task { photos = ScanThumbnail.photoCount(folder: folder, kind: record.kind) }
         .confirmationDialog("Discard this scan?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard scan", role: .destructive) {

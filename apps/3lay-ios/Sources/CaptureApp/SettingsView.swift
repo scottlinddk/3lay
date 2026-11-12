@@ -8,6 +8,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmForgetMac = false
     @State private var confirmUnpair = false
+    @State private var confirmDiscard = false
+    var findMac: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -15,10 +17,10 @@ struct SettingsView: View {
                 Section("Mac") {
                     if let mac = model.pairedMac {
                         LabeledContent("Paired with", value: mac.name)
-                        Button("Change Mac or code") { dismiss(); model.showNearbyMac = true }
+                        Button("Change Mac or code") { findMac(); dismiss() }
                         Button("Forget this Mac", role: .destructive) { confirmForgetMac = true }
                     } else {
-                        Button("Find a Mac nearby") { dismiss(); model.showNearbyMac = true }
+                        Button("Find a Mac nearby") { findMac(); dismiss() }
                     }
                 }
                 if let host = model.pairedHost {
@@ -31,7 +33,7 @@ struct SettingsView: View {
                     LabeledContent("Used by scans", value: ByteCountFormatter.string(fromByteCount: model.catalog.totalStorageBytes(), countStyle: .file))
                     if !model.unfinishedScans.isEmpty {
                         Button("Discard \(model.unfinishedScans.count) unfinished scan(s)", role: .destructive) {
-                            model.discardUnfinishedScans()
+                            confirmDiscard = true
                         }
                     }
                 } header: { Text("Storage") } footer: {
@@ -41,6 +43,12 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .confirmationDialog("Discard unfinished scans?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Discard scans", role: .destructive) { model.discardUnfinishedScans() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Unfinished scans on this phone will be permanently deleted. This cannot be undone.")
+            }
             .confirmationDialog("Forget this Mac?", isPresented: $confirmForgetMac, titleVisibility: .visible) {
                 Button("Forget Mac", role: .destructive) { model.forgetMac() }
             }

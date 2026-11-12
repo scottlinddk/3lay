@@ -10,22 +10,31 @@ struct CaptureScreen: View {
     @State private var folder = CaptureScreen.newFolder()
     @State private var finished = false
     @State private var confirmEarlyFinish = false
+    @State private var confirmCancel = false
     @State private var failureMessage: String?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        GeometryReader { geometry in
             ObjectCaptureView(session: session)
-            VStack(spacing: 12) {
-                Text(guidance).font(.subheadline).multilineTextAlignment(.center)
-                if session.state == .capturing {
-                    Text("Photos: \(session.numberOfShotsTaken) of \(Submission.minimumPhotos)+ recommended")
-                        .font(.headline)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            Text(guidance).font(.subheadline).multilineTextAlignment(.center)
+                            if session.state == .capturing {
+                                Text("Photos: \(session.numberOfShotsTaken) of \(Submission.minimumPhotos)+ recommended")
+                                    .font(.headline)
+                            }
+                            controls
+                        }
+                        .padding()
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity)
+                        .controlSize(.large)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: geometry.size.height * 0.48)
+                    .background(.regularMaterial)
                 }
-                controls
-            }
-            .padding()
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .padding()
         }
         .onAppear(perform: start)
         .onChange(of: session.state) { _, state in
@@ -38,8 +47,14 @@ struct CaptureScreen: View {
             "Only \(session.numberOfShotsTaken) photos. \(Submission.minimumPhotos) or more give a much better model.",
             isPresented: $confirmEarlyFinish, titleVisibility: .visible
         ) {
-            Button("Finish anyway", role: .destructive) { session.finish() }
+            Button("Finish anyway") { session.finish() }
             Button("Keep scanning", role: .cancel) {}
+        }
+        .confirmationDialog("Stop this capture?", isPresented: $confirmCancel, titleVisibility: .visible) {
+            Button("Stop capture", role: .destructive) { session.cancel(); model.cancelCapture() }
+            Button("Keep scanning", role: .cancel) {}
+        } message: {
+            Text("This capture will end without saving a completed scan.")
         }
         .onChange(of: finished) { _, done in
             if done { model.captureFinished(folder: folder) }
@@ -73,7 +88,11 @@ struct CaptureScreen: View {
         default:
             ProgressView()
         }
-        Button(failureMessage == nil ? "Cancel" : "Back", role: .cancel) { session.cancel(); model.cancelCapture() }
+        Button(failureMessage == nil ? "Cancel" : "Back", role: .cancel) {
+            if session.numberOfShotsTaken > 0 && failureMessage == nil { confirmCancel = true }
+            else { session.cancel(); model.cancelCapture() }
+        }
+        .frame(minHeight: 44)
     }
 
     /// One plain sentence for what the user should do now. ARKit reports what is wrong

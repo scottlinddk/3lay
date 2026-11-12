@@ -86,3 +86,36 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
     `APP_STORE_CONNECT_KEY_P8_BASE64` (`base64 -i AuthKey_XXXX.p8`). Variable: `APPLE_TEAM_ID`.
   - Create the app record (bundle id `app.scan3d.capture`) in App Store Connect first.
   - Neither workflow has run yet. Treat the first run as the verification and expect fixes.
+
+## iOS interface conventions
+
+The capture interface follows [Designing for iOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ios),
+[Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility), and
+[Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets):
+
+- Scans uses a native grouped list, semantic text styles, and a bottom New Scan action.
+- Review uses a navigation container, a named field, secondary actions in a menu, and a safe-area send action.
+  Done saves the name and returns to the library without sending.
+- The scan picker supports medium and large heights, starting fully expanded for accessibility text sizes.
+  Scan rows move status beneath the name and omit decorative thumbnails at accessibility sizes.
+- Capture controls scroll in a bounded safe-area panel with system material, preserving camera space.
+  The app supports portrait and landscape; system colors and materials adapt to appearance settings.
+- Capture cancellation and bulk deletion require confirmation. Settings dismisses before opening pairing.
+
+### Interface verification on a device
+
+The CaptureApp device-SDK build and CaptureKit tests verify compilation and existing logic, not visual
+layout or camera interaction. Before release, check on a LiDAR iPhone and iPad:
+
+- [ ] Light and Dark Mode, Increase Contrast, Reduce Transparency, and the largest accessibility text size:
+      no clipped controls in onboarding, the scan picker, library, review, or capture.
+- [ ] Portrait and landscape, including rotation during capture: camera guidance stays usable and every
+      control can be reached by scrolling without overlapping the home indicator.
+- [ ] VoiceOver: scan rows announce name, date, and status; decorative images are skipped; fields and
+      toolbar actions have useful labels. Confirm cancellation dialogs return focus appropriately.
+- [ ] Review: rename, Done, reopen, and confirm the name persists; send and alternate actions still work.
+- [ ] Settings → Change Mac: Settings closes before Nearby Mac opens; closing pairing returns to Scans.
+- [ ] Cancel capture → Keep scanning preserves the current capture; confirm cancellation exits.
+      Cancel bulk deletion preserves unfinished scans.
+- [ ] New Scan sheet: expand by dragging, scroll at large text sizes, dismiss with Cancel, and start
+      each supported capture mode.
