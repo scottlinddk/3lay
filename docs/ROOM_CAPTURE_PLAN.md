@@ -2,10 +2,9 @@
 
 Status: **proposal, nothing implemented.** Written 2026-11-12. Companion to `AI_ASSIST_PLAN.md`.
 
-Sources: the video transcript supplied by the user, a screenshot of his app (v4 scan "Office"), and a secondary
-write-up ([BestHub](https://www.besthub.dev/articles/iphone-lidar-scan-ai-walkable-three-js-room-in-browser-2-6k-stars-in-13-days-902b7cd8778a)).
-His repo (`github.com/wesbos/3d-model-anything`, app in `apps/house-capture`) was **not readable** from this session,
-so everything about its code is second-hand. Read the repo before copying anything.
+Sources: the video transcript supplied by the user, a screenshot of his app, and his repository
+[wesbos/3d-model-anything](https://github.com/wesbos/3d-model-anything) (MIT, read at commit `31b2dc9`, 2026-10-22; app in
+`apps/house-capture`). Section 2 and the "Findings from his code" section come from that code. Nothing here has been run.
 
 ## 1. What he does
 
@@ -20,12 +19,33 @@ so everything about its code is second-hand. Read the repo before copying anythi
 
 ## 2. How many mesh points?
 
-Not stated in the video. The secondary source gives, for his office: **501,651 triangles, 165 photos, 1,112 depth
-frames** (the screenshot shows 161 photos in the v4 scan). It gives no vertex count, and "points" is not a number
-ARKit reports, so compare **triangles**. That is about what ARKit's scene mesh produces for a room: the same
-hardware as ours, so the mesh itself is not his advantage. Our app already shows `triangleCount` while scanning; scan
-the same room and compare before drawing conclusions. His own stated wall-plane error is **2.6 cm**: good for furniture,
-not construction, and not what a 3D print needs.
+From his own `demos/office-v4/BRIEF.md`: **501,651 mesh faces (triangles), 165 photos, 1,112 depth frames**, and a
+wall-plane RMS of **2.6 cm**. The repo ships no vertex count and no raw mesh (only derived measurements), so "points"
+cannot be counted; triangles is the figure to compare. About half a million triangles is what ARKit's scene mesh gives for a room, the
+same hardware we use, so the mesh is not his advantage. Our app already shows `triangleCount` while scanning; scan the
+same room with both apps to compare. 2.6 cm is good for furniture and not for a print or a construction drawing.
+
+## 2b. Findings from his code
+
+| Topic | What `HouseCapture` does | Where |
+| --- | --- | --- |
+| One session for everything | `RoomCaptureSession(arSession:)` shares one ARSession with mesh (`.meshWithClassification`), `.sceneDepth` and photo capture. Confirms the iOS 17 shared-session route | `CaptureController.swift:117,368` |
+| Coverage score | Per mesh vertex: projects it into each photo; needs angle `cosθ > 0.2`, checks **occlusion against that photo's depth**, and scores `min(1, px/cm / 4) * sharpness`. Target is about **4 px/cm**. Vertex score sums to 2; bands: needs photos, almost, done | `CoverageEngine.swift:320-340` |
+| Photo detail % | Covered share of observed mesh area. He states it is not "how much of the room is scanned" | `CoverageEngine.swift:54` |
+| Photo choice | Holds the sharpest recent frame, takes a photo only if it adds at least **0.06 m²** of uncovered surface | `CaptureController.swift:1409,1465` |
+| High-res stills | `captureHighResolutionFrame`, at most one per 3 s, only at nominal thermal state, only if not budget-constrained; kept only if it is wider and at least as sharp (relative) and the pose is within 0.2 m and 12 degrees of the held frame; saved at up to 3024 px | `CaptureController.swift:1421-1465` |
+| Blur | Under 1.5 px smear at 1920 wide is sharp, up to 6 px is accepted | `CaptureController.swift:1466` |
+| Depth | 256x192 Float16, raw DEFLATE (`.f16z`), plus UInt8 confidence plus a **640x480 JPEG of the same frame**, up to 5 per second, with its own pose and intrinsics | `README.md`, `DepthRecorder` |
+| Stop hint | `coveragePlateau`: coverage at least 65%, more than 120 s in, and no progress for 45 s | `CaptureController.swift:642` |
+| Budget | `CaptureBudget` from thermal state, photo count and memory pressure sets depth and evaluation intervals | `CaptureController.swift:647` |
+| RoomPlan data | Saves `CapturedRoom` JSON (Codable), USDZ (parametric and mesh) and raw `CapturedRoomData`, so RoomBuilder can be re-run later | `ScanBundle.swift` |
+| Mesh PLY | Binary: xyz, normal, **coverage**, rgb, `inroom`, per-face ARKit class | README |
+| Untrusted bundles | Manifest paths are checked against escaping the folder on import | `ScanBundle.exportRoom` |
+
+The coverage score and the plateau rule are small, self-contained and worth reimplementing; they are what our
+`CapturePolicy` lacks (we gate on motion and sharpness, not on whether a photo adds coverage). MIT licence: reuse is
+allowed with the copyright notice kept, but reimplement against our own types instead of pasting, since his code is
+built around RoomPlan and houses.
 
 ## 3. Gap analysis against 3lay (`3lay-lidar/2`)
 
@@ -68,8 +88,8 @@ The useful parts carry over, the room parts do not:
 
 ## 6. Proposed phases
 
-1. **Read his repo** (needs access) and diff its `frames.json`/manifest against `LidarManifest`; confirm his triangle
-   and depth numbers by scanning one room with both apps.
+1. **Compare formats** (`photos.json` and `depth/frames.json` against `LidarManifest`, done in 2b) and scan one room
+   with both apps to compare triangle counts.
 2. **Format `3lay-lidar/3`** (additive): depth keyframes with their own poses, optional high-res stills, optional
    `room/room.json`. Validator and `docs/LIDAR_BUNDLE.md` updated first, with tests.
 3. **Capture UX** in `LidarCapture`: coverage per mesh face, photo-detail gauge, stop-on-no-gain hint.
