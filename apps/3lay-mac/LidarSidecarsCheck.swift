@@ -77,6 +77,34 @@ import simd
         try require(LidarSidecars.DepthAgreement.measure(frames: [frame("h", "float32")], folder: folder, meshVertices: wall(offset: 0)) == nil, "wrong size")
         try require(LidarSidecars.DepthAgreement.measure(frames: [frame("missing", "float16")], folder: folder, meshVertices: wall(offset: 0)) == nil, "missing file")
         try require(LidarSidecars.DepthAgreement.measure(frames: [], folder: folder, meshVertices: wall(offset: 0)) == nil, "no frames")
+        // Untrusted metadata must not overflow arithmetic or integer grid coordinates.
+        let vertices = wall(offset: 0)
+        func rejected(_ value: LidarSidecars.Manifest.DepthFrame, _ label: String) throws {
+            try require(LidarSidecars.DepthAgreement.measure(frames: [value], folder: folder, meshVertices: vertices) == nil, label)
+        }
+        var invalid = frame("h", "float16")
+        invalid.width = Int.max
+        try rejected(invalid, "overflowing dimensions")
+        invalid = frame("h", "float16"); invalid.encoding = "unknown"
+        try rejected(invalid, "unknown encoding")
+        invalid = frame("h", "float16"); invalid.transform[12] = Float.greatestFiniteMagnitude
+        let hugePose = LidarSidecars.DepthAgreement.measure(frames: [invalid], folder: folder, meshVertices: vertices)
+        try require(hugePose?.matchedShare == 0, "huge pose must not trap")
+        let hugeVertices = vertices + [SIMD3<Float>(repeating: .greatestFiniteMagnitude)]
+        try require(LidarSidecars.DepthAgreement.measure(frames: [frame("h", "float16")], folder: folder,
+                                                       meshVertices: hugeVertices)?.matchedShare == 1, "huge vertex must be skipped")
+        let outside = folder.deletingLastPathComponent().appending(path: "outside.depth")
+        try half.write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        invalid = frame("h", "float16"); invalid.file = "../outside.depth"
+        try rejected(invalid, "parent traversal")
+        invalid.file = outside.path
+        try rejected(invalid, "absolute path")
+        try FileManager.default.createSymbolicLink(at: folder.appending(path: "depth/link.depth"), withDestinationURL: outside)
+        invalid.file = "depth/link.depth"
+        try rejected(invalid, "symlink escape")
+        invalid = frame("h", "float16"); invalid.confidenceFile = "../outside.depth"
+        try rejected(invalid, "confidence traversal")
         print("LiDAR sidecar and depth agreement checks passed")
     }
 }

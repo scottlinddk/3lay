@@ -122,4 +122,15 @@ final class CoverageMapTests: XCTestCase {
         low.update(percent: 40, at: 0)
         XCTAssertFalse(low.isPlateau(at: 1000))  // stuck low is not "done", it needs more scanning
     }
+    func testPlateauResetsWhenNewSurfaceReducesCoverage() {
+        var p = CoveragePlateau()
+        p.update(percent: 80, at: 0)
+        XCTAssertTrue(p.isPlateau(at: 130))
+        p.update(percent: 30, at: 131)
+        XCTAssertFalse(p.isPlateau(at: 200))
+        p.update(percent: 70, at: 201)
+        XCTAssertFalse(p.isPlateau(at: 220))
+        XCTAssertTrue(p.isPlateau(at: 250))
+    }
+
 }

@@ -70,6 +70,7 @@ final class LidarCapture: NSObject, ObservableObject {
     private var queued = 0
     private var lastMeshCount = Date.distantPast
     private var finishTask: Task<Result, Error>?
+    private var roomFinishTask: Task<LidarManifest.Room?, Never>?
     private var displayLink: CADisplayLink?
     private var lastFrameTimestamp: TimeInterval = -1
     private var lastEnsure = Date.distantPast
@@ -169,6 +170,8 @@ final class LidarCapture: NSObject, ObservableObject {
         stopTicking()
         overlay?.clear()
         roomRecorder?.cancel()
+        roomFinishTask?.cancel()
+        _ = await roomFinishTask?.value  // RoomBuilder may still be writing sidecars
         session?.pause()
         finishTask?.cancel()
         _ = try? await finishTask?.value  // a running save finishes first; its output is then deleted
@@ -268,8 +271,7 @@ final class LidarCapture: NSObject, ObservableObject {
         requestHighResolutionStill(
             replacing: name, held: .init(
                 transform: transform, width: CVPixelBufferGetWidth(buffer),
-                exposureDuration: frame.camera.exposureDuration, trackingNormal: tracking),
-            heldTimestamp: now)
+                exposureDuration: frame.camera.exposureDuration, trackingNormal: tracking))
     }
 
     // MARK: Coverage
@@ -435,14 +437,13 @@ final class LidarCapture: NSObject, ObservableObject {
 
     /// Asks ARKit for a full-resolution still and, if it shows the same view with no more blur, swaps it in for
     /// the video frame that was just saved as `name`. Rare and only on a cool phone (see `HighResPolicy`).
-    private func requestHighResolutionStill(replacing name: String, held: HighResPolicy.View, heldTimestamp: TimeInterval) {
+    private func requestHighResolutionStill(replacing name: String, held: HighResPolicy.View) {
         let now = ProcessInfo.processInfo.systemUptime
         guard highResPolicy.shouldRequest(
             now: now, lastRequest: lastHighResRequest, thermal: Self.thermal, inFlight: highResInFlight,
             budgetConstrained: false, supported: highResSupported) else { return }
         highResInFlight = true
         lastHighResRequest = now
-        let start = startTimestamp ?? heldTimestamp
         session?.captureHighResolutionFrame { [weak self] frame, error in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -455,7 +456,7 @@ final class LidarCapture: NSObject, ObservableObject {
                     transform: frame.camera.transform, width: CVPixelBufferGetWidth(frame.capturedImage),
                     exposureDuration: frame.camera.exposureDuration, trackingNormal: normal)
                 guard self.highResPolicy.accepts(still: still, replacing: held) else { return }
-                self.swapInStill(frame, for: name, videoOffset: heldTimestamp - frame.timestamp, start: start)
+                self.swapInStill(frame, for: name)
             }
         }
     }
@@ -463,7 +464,7 @@ final class LidarCapture: NSObject, ObservableObject {
     /// Longest edge of a saved still. Full-resolution frames are scaled down to this.
     private static let maximumStillEdge = 3024
 
-    private func swapInStill(_ frame: ARFrame, for name: String, videoOffset: TimeInterval, start: TimeInterval) {
+    private func swapInStill(_ frame: ARFrame, for name: String) {
         let buffer = frame.capturedImage
         let intrinsics = frame.camera.intrinsics
         let flat = Self.flatten(frame.camera.transform)
@@ -484,13 +485,13 @@ final class LidarCapture: NSObject, ObservableObject {
                   (try? jpeg.write(to: self.folder.appendingPathComponent(name), options: .atomic)) != nil,
                   let k = LidarGeometry.Intrinsics([intrinsics[0][0], intrinsics[1][1], intrinsics[2][0], intrinsics[2][1]])?
                     .scaled(from: (sourceWidth, sourceHeight), to: (width, height)) else { return }
-            // The timestamp stays the video frame's (it keeps the photo list in time order). The pose and image are
-            // the still's, so the depth, which came from the video frame, lies `videoOffset` seconds from its pixels.
+            // Keep the video depth's original pose before changing the photo to the still's view.
+            // The photo timestamp stays in capture order; depth has its own original timestamp.
             var photo = self.photos[i]
+            if let depth = photo.detachDepthFrame() { self.depthFrames.append(depth) }
             photo.width = width; photo.height = height
             photo.transform = flat; photo.intrinsics = k.array
             photo.exposure = exposure; photo.highRes = true
-            if var depth = photo.depth { depth.timeOffset = videoOffset; photo.depth = depth }
             self.photos[i] = photo
             let total = self.photos.filter { $0.highRes == true }.count
             DispatchQueue.main.async { self.highResCount = total }
@@ -610,7 +611,10 @@ final class LidarCapture: NSObject, ObservableObject {
         overlay?.clear()
         // RoomPlan first: it keeps the ARSession running, so the mesh below still includes everything.
         let folder = self.folder
-        let room = await roomRecorder?.finish(into: folder)
+        let roomTask = Task { @MainActor [roomRecorder] in await roomRecorder?.finish(into: folder) }
+        roomFinishTask = roomTask
+        let room = await roomTask.value
+        roomFinishTask = nil
         guard state == .finishing else { throw CancellationError() }  // cancelled while RoomPlan was building
         guard let frame = session?.currentFrame else { state = .failed(Failure.noFrame.localizedDescription); throw Failure.noFrame }
         // ARKit may keep changing its mesh buffers, so copy them now; everything after works on the copies.
@@ -679,7 +683,9 @@ final class LidarCapture: NSObject, ObservableObject {
 
     private func drainRecording() async -> (photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]) {
         await withCheckedContinuation { (done: CheckedContinuation<(photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]), Never>) in
-            encodeQueue.async { done.resume(returning: (self.photos, self.depthFrames)) }
+            encodeQueue.async {
+                done.resume(returning: (self.photos, self.depthFrames.sorted { $0.timestamp < $1.timestamp }))
+            }
         }
     }
 

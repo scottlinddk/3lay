@@ -180,17 +180,20 @@ public struct CoveragePlateau {
 
     private var started: TimeInterval?
     private var best = 0
+    private var current = 0
     private var lastProgress: TimeInterval = 0
 
     public init() {}
 
     public mutating func update(percent: Int, at time: TimeInterval) {
+        current = percent
+        if percent < best { best = percent; lastProgress = time }
         if started == nil { started = time; lastProgress = time }
         if percent > best { best = percent; lastProgress = time }
     }
 
     public func isPlateau(at time: TimeInterval) -> Bool {
         guard let started else { return false }
-        return best >= minimumPercent && time - started > minimumDuration && time - lastProgress > stall
+        return current >= minimumPercent && time - started > minimumDuration && time - lastProgress > stall
     }
 }

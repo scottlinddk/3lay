@@ -71,8 +71,9 @@ A photo with `highRes: true` is a still from `ARSession.captureHighResolutionFra
 edge, replacing the video frame that was saved first. It is requested rarely (at most every 3 s, only on a cool phone) and
 kept only if it shows the same view (within 0.2 m and about 12 degrees), is larger, and was not exposed longer than the
 video frame. Its `transform`, `intrinsics`, `width`, `height` and `exposure` are the still's. Its `timestamp` stays the
-video frame's, which keeps photos in time order, and its `depth` still comes from that video frame, so `depth.timeOffset` is the
-(small, negative) number of seconds the depth lies from the still's pixels. Use the recorded poses to account for it.
+video frame's, which keeps photos in time order. The original video depth is moved to `depthFrames` as a Float32
+observation with its original pose, intrinsics and timestamp; the still has no per-photo `depth`. This avoids applying
+the still's changed camera pose to depth captured earlier.
 
 ## Room layout (v3)
 

@@ -133,8 +133,8 @@ public struct LidarManifest: Codable, Equatable {
         public var trackingState: String?
         public var exposure: Exposure?
         public var depth: Depth?
-        /// v3: a full-resolution still (`captureHighResolutionFrame`) instead of a video frame. Its `depth`, if
-        /// any, comes from the video frame a moment earlier: see `Depth.timeOffset`.
+        /// v3: a full-resolution still instead of a video frame. The original video depth is
+        /// retained as an independent depth frame, with its original pose.
         public var highRes: Bool?
 
         public init(
@@ -151,6 +151,17 @@ public struct LidarManifest: Codable, Equatable {
             self.exposure = exposure
             self.depth = depth
             self.highRes = highRes
+        }
+
+        /// Detaches the video depth before replacing this photo's pose with a still's pose.
+        /// The depth files remain in place and become an independent Float32 observation.
+        public mutating func detachDepthFrame() -> DepthFrame? {
+            guard let depth else { return nil }
+            self.depth = nil
+            return DepthFrame(
+                file: depth.file, confidenceFile: depth.confidenceFile, width: depth.width, height: depth.height,
+                encoding: .float32, timestamp: timestamp + depth.timeOffset, transform: transform,
+                intrinsics: depth.intrinsics, smoothed: depth.smoothed)
         }
     }
 

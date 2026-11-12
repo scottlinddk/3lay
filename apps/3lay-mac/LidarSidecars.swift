@@ -81,10 +81,29 @@ enum LidarSidecars {
             guard !frames.isEmpty, !meshVertices.isEmpty, maxFrames > 0, pixelStride > 0 else { return nil }
             let cell = searchRadius
             var grid: [SIMD3<Int32>: [Int32]] = [:]
-            func key(_ p: SIMD3<Float>) -> SIMD3<Int32> {
-                SIMD3(Int32((p.x / cell).rounded(.down)), Int32((p.y / cell).rounded(.down)), Int32((p.z / cell).rounded(.down)))
+            func key(_ p: SIMD3<Float>) -> SIMD3<Int32>? {
+                // Imported coordinates can be finite but too large for an integer conversion.
+                guard let x = Int32(exactly: (p.x / cell).rounded(.down)),
+                      let y = Int32(exactly: (p.y / cell).rounded(.down)),
+                      let z = Int32(exactly: (p.z / cell).rounded(.down)),
+                      x > .min, x < .max, y > .min, y < .max, z > .min, z < .max else { return nil }
+                return SIMD3(x, y, z)
             }
-            for (i, v) in meshVertices.enumerated() where v.x.isFinite && v.y.isFinite && v.z.isFinite { grid[key(v), default: []].append(Int32(i)) }
+            for (i, v) in meshVertices.enumerated() {
+                if let k = key(v), let index = Int32(exactly: i) { grid[k, default: []].append(index) }
+            }
+            guard !grid.isEmpty else { return nil }
+
+            func read(_ path: String, size: Int) -> Data? {
+                guard !path.isEmpty, !path.hasPrefix("/") else { return nil }
+                let root = folder.resolvingSymlinksInPath().standardizedFileURL
+                let url = root.appending(path: path).resolvingSymlinksInPath().standardizedFileURL
+                guard url.path.hasPrefix(root.path + "/"),
+                      let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                      attributes[.type] as? FileAttributeType == .typeRegular,
+                      attributes[.size] as? Int == size else { return nil }
+                return try? Data(contentsOf: url)
+            }
 
             let chosen = (0..<min(maxFrames, frames.count)).map { frames[$0 * frames.count / min(maxFrames, frames.count)] }
             var distances: [Float] = []
@@ -92,11 +111,15 @@ enum LidarSidecars {
             for frame in chosen {
                 guard let pose = matrix(frame.transform), frame.intrinsics.count == 4, frame.intrinsics.allSatisfy(\.isFinite),
                       frame.intrinsics[0] > 0, frame.intrinsics[1] > 0, frame.width > 0, frame.height > 0,
-                      let depth = try? Data(contentsOf: folder.appending(path: frame.file)),
-                      let confidence = try? Data(contentsOf: folder.appending(path: frame.confidenceFile)) else { continue }
+                      frame.encoding == "float16" || frame.encoding == "float32" else { continue }
                 let bytes = frame.encoding == "float16" ? 2 : 4
-                let pixels = frame.width * frame.height
-                guard depth.count == pixels * bytes, confidence.count == pixels else { continue }
+                let (pixels, pixelOverflow) = frame.width.multipliedReportingOverflow(by: frame.height)
+                let (byteCount, byteOverflow) = pixels.multipliedReportingOverflow(by: bytes)
+                // Bound work and allocation as well as checking arithmetic. Current maps are 256 × 192.
+                guard !pixelOverflow, !byteOverflow, pixels <= 16_777_216,
+                      let depth = read(frame.file, size: byteCount),
+                      let confidence = read(frame.confidenceFile, size: pixels),
+                      depth.count == byteCount, confidence.count == pixels else { continue }
                 used += 1
                 let fx = frame.intrinsics[0], fy = frame.intrinsics[1], cx = frame.intrinsics[2], cy = frame.intrinsics[3]
                 for y in stride(from: 0, to: frame.height, by: pixelStride) {
@@ -117,7 +140,7 @@ enum LidarSidecars {
                         let camera = SIMD4((Float(x) + 0.5 - cx) * meters / fx, -(Float(y) + 0.5 - cy) * meters / fy, -meters, 1)
                         let w = pose * camera
                         let p = SIMD3<Float>(w.x, -w.z, w.y)
-                        if let d = nearest(to: p, grid: grid, key: key(p), vertices: meshVertices) { distances.append(d) } else { unmatched += 1 }
+                        if let k = key(p), let d = nearest(to: p, grid: grid, key: k, vertices: meshVertices) { distances.append(d) } else { unmatched += 1 }
                     }
                 }
             }

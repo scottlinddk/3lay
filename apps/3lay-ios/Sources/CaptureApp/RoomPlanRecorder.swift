@@ -34,6 +34,7 @@ final class RoomPlanRecorder: NSObject, RoomCaptureSessionDelegate {
     /// Stops RoomPlan, builds the final layout and writes `room/room.json`, `room/room-data.json` and a USDZ
     /// into `folder`. nil if RoomPlan produced nothing usable; the scan is still good without the layout.
     func finish(into folder: URL) async -> LidarManifest.Room? {
+        guard !Task.isCancelled else { return nil }
         let data: CapturedRoomData? = await withCheckedContinuation { next in
             continuation = next
             session.stop(pauseARSession: false)
@@ -42,7 +43,7 @@ final class RoomPlanRecorder: NSObject, RoomCaptureSessionDelegate {
                 self?.resume(with: nil)  // RoomPlan never reported back
             }
         }
-        guard let data else { return nil }
+        guard let data, !Task.isCancelled else { return nil }
         let directory = folder.appendingPathComponent("room")
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -53,6 +54,7 @@ final class RoomPlanRecorder: NSObject, RoomCaptureSessionDelegate {
                 dataFile = "room/room-data.json"
             }
             let room = try await RoomBuilder(options: [.beautifyObjects]).capturedRoom(from: data)
+            try Task.checkCancellation()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(room).write(to: directory.appendingPathComponent("room.json"), options: .atomic)

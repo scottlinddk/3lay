@@ -285,4 +285,22 @@ final class LidarBundleFormatTests: XCTestCase {
         undeclared.capabilities = ["depth/1"]
         XCTAssertTrue(LidarBundleValidator.validate(manifest: undeclared, in: folder).contains { $0.message.contains("highres/1") })
     }
+    func testStillReplacementPreservesVideoDepthAsIndependentObservation() throws {
+        var original = photo(depth: depthRef())
+        let oldPose = original.transform
+        let oldTime = original.timestamp
+        let oldDepth = try XCTUnwrap(original.depth)
+        let detached = try XCTUnwrap(original.detachDepthFrame())
+        original.transform[12] += 0.15
+        original.highRes = true
+        XCTAssertNil(original.depth)
+        XCTAssertEqual(detached.transform, oldPose)
+        XCTAssertEqual(detached.timestamp, oldTime + oldDepth.timeOffset)
+        XCTAssertEqual(detached.intrinsics, oldDepth.intrinsics)
+        XCTAssertEqual(detached.file, oldDepth.file)
+        XCTAssertEqual(detached.encoding, .float32)
+        let encoded = try JSONEncoder().encode(detached)
+        XCTAssertEqual(try JSONDecoder().decode(LidarManifest.DepthFrame.self, from: encoded), detached)
+    }
+
 }
