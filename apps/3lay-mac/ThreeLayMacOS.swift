@@ -89,6 +89,19 @@ struct CloudItem: Identifiable {
                 importFile(bundle.mesh, unitScale: Mesh.metresToMillimetres)
                 if status.hasPrefix("Imported") {
                     status += " · LiDAR mesh · \(bundle.photoCount) photos with camera poses kept in \(bundle.folder.path)"
+                    let extras = bundle.manifest.summary
+                    if !extras.isEmpty { status += " · \(extras)" }
+                }
+                // Does the phone's depth agree with its own mesh? A drifted or mis-scaled scan shows up here.
+                if let frames = bundle.manifest.depthFrames, !frames.isEmpty {
+                    let folder = bundle.folder, meshURL = bundle.mesh
+                    let agreement = await Task.detached(priority: .utility) { () -> LidarSidecars.DepthAgreement? in
+                        guard let mesh = try? Mesh.load(meshURL) else { return nil }
+                        // `load` puts the model on the origin; the depth is in the scan's own frame.
+                        let raw = mesh.vertices.map { $0 + mesh.origin }
+                        return LidarSidecars.DepthAgreement.measure(frames: frames, folder: folder, meshVertices: raw)
+                    }.value
+                    if let agreement { status += " · \(agreement.summary)" }
                 }
             } catch { status = "LiDAR import failed: \(error.localizedDescription)" }
         }

@@ -25,7 +25,7 @@ Paste the `scan3d://pair` link from the companion web app into **Companion app**
 | **Scan an object** (Object Capture) | Small objects: books, parts, figurines | `.zip` of photos with embedded LiDAR depth | Builds the model itself with Object Capture (below) |
 | **Scan a room or large object (LiDAR)** | Rooms, furniture, big objects | `*.lidar.zip`: ARKit LiDAR mesh (binary PLY, meters, Z up) + posed photos + `manifest.json` | Imports the LiDAR mesh as is (metres to millimetres) and keeps the photos and their camera poses in the inbox |
 
-LiDAR meshes are around 1 cm coarse, so small objects come out better from photogrammetry. The photos in a LiDAR bundle are not used for geometry or colour on the Mac yet; they are kept with exact poses for that next step. The browser upload page and **Import file** also take binary little-endian PLY now.
+LiDAR meshes are around 1 cm coarse, so small objects come out better from photogrammetry. The photos in a LiDAR bundle are not used for geometry or colour on the Mac yet; they are kept with exact poses for that next step. A version 3 bundle also carries depth keyframes, full-resolution stills and a RoomPlan layout: the status line reports them, and a sample of the depth is compared with the mesh (`LidarSidecars.swift`) so a drifted or mis-scaled scan shows up as a large median distance. The browser upload page and **Import file** also take binary little-endian PLY now.
 
 ## Photo scans from the phone
 

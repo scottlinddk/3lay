@@ -17,6 +17,8 @@ public struct CapturePolicy {
         case tooFast
         case tooSoon
         case sameViewpoint
+        /// The photo would not add enough newly covered surface (see `CoverageMap`).
+        case noNewCoverage
         case blurry
         case longExposure
         case limitReached
@@ -30,7 +32,7 @@ public struct CapturePolicy {
             case .longExposure: return "Too dark for sharp photos. Add light."
             case .tooHot: return "The phone is hot. Capture is paused until it cools down."
             case .limitReached: return "Photo limit reached. Finish the scan."
-            case .tooFast, .tooSoon, .sameViewpoint: return nil
+            case .tooFast, .tooSoon, .sameViewpoint, .noNewCoverage: return nil
             }
         }
     }
@@ -56,6 +58,8 @@ public struct CapturePolicy {
     public var maxPhotos = 400
     public var minimumDistance: Float = 0.06
     public var minimumTurn: Float = 0.14  // radians, about 8 degrees
+    /// Square meters of not-yet-covered surface a photo must add when coverage is known.
+    public var minimumCoverageGain: Float = 0.06
     public var baseInterval: TimeInterval = 0.4
     public var maximumSpeed: Float = 0.35  // meters per second
     public var maximumTurnRate: Float = 0.8  // radians per second
@@ -89,8 +93,12 @@ public struct CapturePolicy {
     /// `evaluate` only for frames that will actually be saved when it says take.
     /// `busy` says the previous photo is still being written: the frame is skipped, but motion is still tracked.
     /// `measureSharpness` is only called when every cheaper rule has passed, so most frames never pay for it.
+    /// `coverageGain` returns the square meters of surface this view would newly cover, or nil while that is not
+    /// known (no mesh yet); a known gain under `minimumCoverageGain` skips the frame. It runs after the cheap
+    /// rules and before the sharpness measurement.
     public mutating func evaluate(
-        _ frame: Frame, thermal: Thermal, busy: Bool = false, measureSharpness: (() -> Float?)? = nil
+        _ frame: Frame, thermal: Thermal, busy: Bool = false, coverageGain: (() -> Float?)? = nil,
+        measureSharpness: (() -> Float?)? = nil
     ) -> Decision {
         defer { previous = (frame.transform, frame.time) }
         if thermal == .critical { return .skip(.tooHot) }
@@ -112,6 +120,8 @@ public struct CapturePolicy {
             simd_distance(Self.position(frame.transform), Self.position($0)) < minimumDistance
                 && Self.angle(Self.forward(frame.transform), Self.forward($0)) < minimumTurn
         }) { return .skip(.sameViewpoint) }
+
+        if let gain = coverageGain?(), gain < minimumCoverageGain { return .skip(.noNewCoverage) }
 
         let sharpness = frame.sharpness ?? measureSharpness?()
         if let sharpness, recentSharpness.count >= minimumSamplesForGate {
@@ -150,7 +160,7 @@ public struct CapturePolicy {
 
     // MARK: Math
 
-    static func position(_ m: simd_float4x4) -> SIMD3<Float> { SIMD3(m.columns.3.x, m.columns.3.y, m.columns.3.z) }
-    static func forward(_ m: simd_float4x4) -> SIMD3<Float> { -SIMD3(m.columns.2.x, m.columns.2.y, m.columns.2.z) }
-    static func angle(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float { acos(max(-1, min(1, simd_dot(a, b)))) }
+    public static func position(_ m: simd_float4x4) -> SIMD3<Float> { SIMD3(m.columns.3.x, m.columns.3.y, m.columns.3.z) }
+    public static func forward(_ m: simd_float4x4) -> SIMD3<Float> { -SIMD3(m.columns.2.x, m.columns.2.y, m.columns.2.z) }
+    public static func angle(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float { acos(max(-1, min(1, simd_dot(a, b)))) }
 }

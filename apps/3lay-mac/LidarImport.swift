@@ -1,6 +1,6 @@
 import Foundation
 
-/// Unpacks a LiDAR scan bundle from the phone (`*.lidar.zip`, format `3lay-lidar/1`): an ARKit mesh
+/// Unpacks a LiDAR scan bundle from the phone (`*.lidar.zip`, format `3lay-lidar/1` to `/3`): an ARKit mesh
 /// as a binary PLY in meters, Z up, plus photos with camera poses. The mesh is imported as is.
 /// The photos are kept next to it with their poses, ready for texturing or refinement later; nothing
 /// on the Mac uses them yet.
@@ -10,14 +10,8 @@ enum LidarImport {
         let folder: URL
         let mesh: URL
         let photoCount: Int
-    }
-
-    /// Just the parts of `manifest.json` the Mac needs. `Photo` ignores everything inside each entry.
-    private struct Manifest: Decodable {
-        struct Photo: Decodable {}
-        let format: String
-        let meshFile: String
-        let photos: [Photo]
+        /// Depth keyframes, full-resolution stills and the room layout, when the phone sent them (`3lay-lidar/3`).
+        let manifest: LidarSidecars.Manifest
     }
 
     static let formatPrefix = "3lay-lidar/"
@@ -28,9 +22,9 @@ enum LidarImport {
         try? FileManager.default.removeItem(at: work)
         try await PhotoReconstruction.unzip(archive, to: work)
         let root = try bundleRoot(in: work)
-        let manifest: Manifest
+        let manifest: LidarSidecars.Manifest
         do {
-            manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appending(path: "manifest.json")))
+            manifest = try JSONDecoder().decode(LidarSidecars.Manifest.self, from: Data(contentsOf: root.appending(path: "manifest.json")))
         } catch { throw ScanError.message("The LiDAR scan has no readable manifest.json.") }
         guard manifest.format.hasPrefix(formatPrefix) else {
             throw ScanError.message("This is not a 3lay LiDAR scan (format \(manifest.format)).")
@@ -42,7 +36,7 @@ enum LidarImport {
             throw ScanError.message("The LiDAR scan has no mesh file.")
         }
         try? FileManager.default.removeItem(at: archive)
-        return Unpacked(folder: root, mesh: mesh, photoCount: manifest.photos.count)
+        return Unpacked(folder: root, mesh: mesh, photoCount: manifest.photos.count, manifest: manifest)
     }
 
     /// The folder holding `manifest.json`: the unpacked root, or its only subfolder.

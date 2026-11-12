@@ -1,6 +1,6 @@
 # Plan: ideas from Wes Bos's "3D Model Anything", RoomPlan, and small objects
 
-Status: **proposal, nothing implemented.** Written 2026-11-12. Companion to `AI_ASSIST_PLAN.md`.
+Status: **implemented, not yet built or run** (no Swift toolchain in the authoring session; macOS CI is the first compile). Written 2026-11-12. Companion to `AI_ASSIST_PLAN.md`.
 
 Sources: the video transcript supplied by the user, a screenshot of his app, and his repository
 [wesbos/3d-model-anything](https://github.com/wesbos/3d-model-anything) (MIT, read at commit `31b2dc9`, 2026-10-22; app in

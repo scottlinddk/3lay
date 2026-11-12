@@ -5,6 +5,9 @@ struct Mesh {
     var faces: [SIMD3<Int>]
     var name: String
     var bounds: SIMD3<Float>
+    /// What `load` subtracted to put the model on the plate origin, in the loaded units. Add it back to a vertex
+    /// to get its original position (the LiDAR depth check compares against the scan's own frame).
+    var origin: SIMD3<Float> = .zero
 
     /// Largest file `load` accepts. A full-detail photo scan is a few million triangles (50 bytes each in STL).
     static let maxFileBytes = 500_000_000
@@ -34,6 +37,7 @@ struct Mesh {
         mesh.bounds = hi - lo
         let center = SIMD3<Float>((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z)
         mesh.vertices = mesh.vertices.map { $0 - center }
+        mesh.origin = center
         mesh.name = url.lastPathComponent
         return mesh
     }

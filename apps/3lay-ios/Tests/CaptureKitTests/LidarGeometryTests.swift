@@ -171,4 +171,118 @@ final class LidarBundleFormatTests: XCTestCase {
         p.file = "../outside.jpg"
         XCTAssertTrue(LidarBundleValidator.validate(manifest: manifest([p]), in: folder).contains { $0.message.contains("leaves the bundle") })
     }
+    // MARK: Version 3
+
+    private func depthFrame(_ n: Int = 1, encoding: LidarManifest.DepthFrame.Encoding = .float16, time: Double = 1) -> LidarManifest.DepthFrame {
+        LidarManifest.DepthFrame(
+            file: String(format: "depth/f%05d.depth", n), confidenceFile: String(format: "depth/f%05d.conf", n),
+            width: 256, height: 192, encoding: encoding, timestamp: time,
+            transform: matrix_identity_float4x4.flatMatrix, intrinsics: [200, 200, 128, 96])
+    }
+
+    private func writeFrame(_ f: LidarManifest.DepthFrame) {
+        try? Data(count: f.width * f.height * f.encoding.bytesPerPixel).write(to: folder.appendingPathComponent(f.file))
+        try? Data(count: f.width * f.height).write(to: folder.appendingPathComponent(f.confidenceFile))
+    }
+
+    private func writeRoom() {
+        try? FileManager.default.createDirectory(at: folder.appendingPathComponent("room"), withIntermediateDirectories: true)
+        try? Data("{}".utf8).write(to: folder.appendingPathComponent("room/room.json"))
+    }
+
+    func testDepthFramesMakeAVersion3BundleThatRoundTrips() throws {
+        let f = depthFrame()
+        writeFrame(f)
+        let m = LidarManifest(createdAt: Date(timeIntervalSince1970: 0), device: device, vertexCount: 3, triangleCount: 1,
+                              photos: [photo()], depthFrames: [f])
+        XCTAssertEqual(m.format, "3lay-lidar/3")
+        XCTAssertEqual(m.capabilities, ["depth-frames/1"])
+        XCTAssertEqual(m.meshFromWorld, LidarGeometry.meshFromWorld.flatMatrix)
+        let decoded = try CaptureManifest.decoder().decode(LidarManifest.self, from: CaptureManifest.encoder().encode(m))
+        XCTAssertEqual(decoded, m)
+        XCTAssertEqual(LidarBundleValidator.validate(manifest: m, in: folder), [])
+    }
+
+    func testNoDepthFramesAndNoRoomStaysVersion1Or2() {
+        XCTAssertEqual(manifest([photo()]).format, "3lay-lidar/1")
+        XCTAssertEqual(manifest([photo(depth: depthRef())]).format, "3lay-lidar/2")
+        let m = LidarManifest(createdAt: Date(timeIntervalSince1970: 0), device: device, vertexCount: 3, triangleCount: 1,
+                              photos: [photo(depth: depthRef())], depthFrames: [])
+        XCTAssertEqual(m.format, "3lay-lidar/2")
+        XCTAssertNil(m.depthFrames)
+    }
+
+    func testVersion2ManifestWithoutNewFieldsStillDecodesUnderVersion3Code() throws {
+        let v2 = """
+        {"format":"3lay-lidar/2","createdAt":"1970-01-01T00:00:00Z","device":{"model":"iPhone","systemVersion":"17","appVersion":"1","hasLiDAR":true},
+         "units":"meters","meshFile":"mesh/scan.ply","vertexCount":3,"triangleCount":1,"capabilities":["depth/1"],
+         "meshFromWorld":[1,0,0,0,0,0,1,0,0,-1,0,0,0,0,0,1],
+         "photos":[{"file":"photos/0001.jpg","width":1920,"height":1440,"timestamp":1,"transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"intrinsics":[1500,1500,960,720]}]}
+        """
+        let m = try CaptureManifest.decoder().decode(LidarManifest.self, from: Data(v2.utf8))
+        XCTAssertNil(m.depthFrames)
+        XCTAssertNil(m.room)
+        XCTAssertNil(m.photos[0].highRes)
+        XCTAssertEqual(LidarBundleValidator.validate(manifest: m, in: folder), [])
+    }
+
+    func testDepthFrameProblemsAreReported() {
+        var f = depthFrame()
+        // Missing files.
+        var m = LidarManifest(createdAt: Date(timeIntervalSince1970: 0), device: device, vertexCount: 3, triangleCount: 1,
+                              photos: [photo()], depthFrames: [f])
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("Depth map") && $0.message.contains("missing") })
+        // Float16 file written with Float32 size.
+        try? Data(count: 256 * 192 * 4).write(to: folder.appendingPathComponent(f.file))
+        try? Data(count: 256 * 192).write(to: folder.appendingPathComponent(f.confidenceFile))
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("expected \(256 * 192 * 2)") })
+        // Bad pose and intrinsics, escaping path.
+        writeFrame(f)
+        var scaled = matrix_identity_float4x4
+        scaled.columns.0.x = 3
+        f.transform = scaled.flatMatrix
+        f.intrinsics = [0, 200, 128, 96]
+        m.depthFrames = [f]
+        let issues = LidarBundleValidator.validate(manifest: m, in: folder).map(\.message)
+        XCTAssertTrue(issues.contains { $0.contains("rigid") })
+        XCTAssertTrue(issues.contains { $0.contains("Focal length") })
+        f.file = "../outside.depth"
+        m.depthFrames = [f]
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("leaves the bundle") })
+    }
+
+    func testDepthFramesMustBeDeclaredAndInTimeOrder() {
+        let a = depthFrame(1, time: 2), b = depthFrame(2, time: 1)
+        writeFrame(a); writeFrame(b)
+        var m = LidarManifest(createdAt: Date(timeIntervalSince1970: 0), device: device, vertexCount: 3, triangleCount: 1,
+                              photos: [photo()], depthFrames: [a, b])
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("backwards") })
+        m.capabilities = ["depth/1"]
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("depth-frames/1") })
+    }
+
+    func testRoomSidecarIsDeclaredAndChecked() {
+        let room = LidarManifest.Room(file: "room/room.json", walls: 4)
+        var m = LidarManifest(createdAt: Date(timeIntervalSince1970: 0), device: device, vertexCount: 3, triangleCount: 1,
+                              photos: [photo()], room: room)
+        XCTAssertEqual(m.format, "3lay-lidar/3")
+        XCTAssertEqual(m.capabilities, ["room/1"])
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("missing") })
+        writeRoom()
+        XCTAssertEqual(LidarBundleValidator.validate(manifest: m, in: folder), [])
+        m.room = LidarManifest.Room(file: "../room.json")
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: m, in: folder).contains { $0.message.contains("leaves the bundle") })
+    }
+
+    func testHighResStillMustBeDeclared() {
+        var p = photo()
+        p.highRes = true
+        let m = manifest([p])
+        XCTAssertEqual(m.format, "3lay-lidar/3")
+        XCTAssertEqual(m.capabilities, ["highres/1"])
+        XCTAssertEqual(LidarBundleValidator.validate(manifest: m, in: folder), [])
+        var undeclared = m
+        undeclared.capabilities = ["depth/1"]
+        XCTAssertTrue(LidarBundleValidator.validate(manifest: undeclared, in: folder).contains { $0.message.contains("highres/1") })
+    }
 }

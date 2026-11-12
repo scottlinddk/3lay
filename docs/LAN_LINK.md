@@ -19,7 +19,7 @@ change them there and update this page in the same commit.
      `PhotogrammetrySession` (`PhotoReconstruction.swift`), which is faster and more detailed than
      the phone. Only offered when `/api/hello` reports `maxCaptureBytes`; an older Mac refuses zips.
    - **LiDAR scan** (rooms and large objects): `<name>.lidar.zip` holding `manifest.json`
-     (`3lay-lidar/1`), `mesh/scan.ply` (ARKit LiDAR mesh, binary little-endian PLY, meters, Z up) and
+     (`3lay-lidar/1` to `/3`), `mesh/scan.ply` (ARKit LiDAR mesh, binary little-endian PLY, meters, Z up) and
      `photos/NNNN.jpg` with a camera pose and intrinsics each. The Mac imports the mesh and keeps the
      photos. Only offered when `/api/hello` reports `supportsLidarBundles`; an older Mac would treat the
      zip as photos and fail.
