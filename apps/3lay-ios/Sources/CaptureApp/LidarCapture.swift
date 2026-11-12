@@ -62,7 +62,10 @@ final class LidarCapture: NSObject, ObservableObject {
     let folder: URL
     private weak var session: ARSession?
     private let encodeQueue = DispatchQueue(label: "app.scan3d.lidar.encode", qos: .userInitiated)
-    private let ciContext = CIContext()
+    // The GPU is refused once the app is in the background, so encoding falls back to the CPU then.
+    private let gpuContext = CIContext()
+    private let cpuContext = CIContext(options: [.useSoftwareRenderer: true])
+    private var ciContext: CIContext { AppActivity.isActive ? gpuContext : cpuContext }
     // Main thread only:
     private var startTimestamp: TimeInterval?
     private var policy = CapturePolicy()
@@ -111,6 +114,7 @@ final class LidarCapture: NSObject, ObservableObject {
     init(folder: URL) {
         self.folder = folder
         super.init()
+        AppActivity.start()
         try? FileManager.default.createDirectory(at: folder.appendingPathComponent("photos"), withIntermediateDirectories: true)
     }
 

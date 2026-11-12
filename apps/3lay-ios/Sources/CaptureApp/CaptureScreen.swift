@@ -4,10 +4,34 @@ import RealityKit
 import SwiftUI
 
 /// Guided Object Capture. Photos land in a per-capture folder that survives app restarts.
+///
+/// This wrapper only exists so a stuck camera can be restarted: bumping `attempt` replaces the whole
+/// inner screen, and with it the `ObjectCaptureSession`, the folder and every piece of state.
 struct CaptureScreen: View {
+    @State private var attempt = 0
+
+    var body: some View {
+        ActiveCaptureScreen(restart: { attempt += 1 }).id(attempt)
+    }
+}
+
+/// Owns the session. A `@StateObject` builds it exactly once; a `@State` default value would construct a
+/// throwaway `ObjectCaptureSession` every time the parent rebuilds this view's struct.
+@MainActor
+private final class CaptureSessionHolder: ObservableObject {
+    let session = ObjectCaptureSession()
+}
+
+private struct ActiveCaptureScreen: View {
+    let restart: () -> Void
     @EnvironmentObject var model: AppModel
-    @State private var session = ObjectCaptureSession()
-    @State private var folder = CaptureScreen.newFolder()
+    @StateObject private var holder = CaptureSessionHolder()
+    @State private var folder = ActiveCaptureScreen.newFolder()
+    /// The camera never became usable (no frames, or `startDetecting()` kept being refused).
+    @State private var stuck = false
+    @State private var started = false
+    @Environment(\.scenePhase) private var scenePhase
+    private var session: ObjectCaptureSession { holder.session }
     @State private var finished = false
     @State private var confirmEarlyFinish = false
     @State private var confirmCancel = false
@@ -42,9 +66,12 @@ struct CaptureScreen: View {
                 }
         }
         .onAppear(perform: start)
+        .onChange(of: scenePhase) { _, phase in if phase == .active { start() } }
+        .task { await watchForStall() }
         .onChange(of: session.state) { _, state in
             // The object box still needs framing, but the first tap on "Detect" adds nothing.
             if state == .ready { Task { await beginDetecting() } }
+            if state != .initializing && state != .ready { stuck = false }
             if state == .completed { finished = true }
             if case .failed(let error) = state { failureMessage = error.localizedDescription }
         }
@@ -98,13 +125,21 @@ struct CaptureScreen: View {
                 if session.numberOfShotsTaken < Submission.minimumPhotos { confirmEarlyFinish = true }
                 else { session.finish() }
             }.buttonStyle(.borderedProminent)
-        case .ready:
+        case .ready where !stuck:
             // Manual fallback if the automatic attempt below never succeeds.
-            Button("Continue") { _ = session.startDetecting() }.buttonStyle(.borderedProminent)
+            Button("Continue") { Task { await beginDetecting() } }.buttonStyle(.borderedProminent)
         case .failed:
             EmptyView()
         default:
-            ProgressView()
+            if stuck {
+                Button("Restart camera") {
+                    session.cancel()
+                    try? FileManager.default.removeItem(at: folder)
+                    restart()
+                }.buttonStyle(.borderedProminent)
+            } else {
+                ProgressView()
+            }
         }
         Button(failureMessage == nil ? "Cancel" : "Back", role: .cancel) {
             if session.numberOfShotsTaken > 0 && failureMessage == nil { confirmCancel = true }
@@ -145,24 +180,41 @@ struct CaptureScreen: View {
         case .failed:
             // Without this a failed session sat on "Getting ready..." forever.
             return "Scanning could not start: \(failureMessage ?? "unknown error")"
-        default: return "Getting ready..."
+        default:
+            if stuck { return "The camera did not start. Close other camera apps, then restart the camera." }
+            return "Getting ready..."
         }
     }
 
     /// `state` turns `.ready` slightly before the session accepts `startDetecting()` (the log says
     /// "called in wrong state=running"). A single call is silently rejected and the screen stays on
-    /// "Getting ready..." forever, so retry briefly until it is accepted.
+    /// "Getting ready..." forever, so retry briefly until it is accepted. If it never is, say so.
     private func beginDetecting() async {
+        stuck = false
         for _ in 0..<20 {
             guard session.state == .ready else { return }
             if session.startDetecting() { return }
             try? await Task.sleep(for: .milliseconds(250))
         }
+        if session.state == .ready { stuck = true }
+    }
+
+    /// ARKit stops delivering camera frames when its delegate holds on to too many, and the session then
+    /// sits in `.initializing` or `.ready` with a black preview. Give it a generous 20 s, then offer a restart.
+    private func watchForStall() async {
+        try? await Task.sleep(for: .seconds(20))
+        guard !Task.isCancelled else { return }
+        if session.state == .initializing || session.state == .ready { stuck = true }
     }
 
     private func start() {
+        // Starting while the app is inactive (permission alert, Control Center, still launching) gets the
+        // camera and Metal refused: "Insufficient Permission (to submit GPU work from background)". Wait for
+        // `.active`; the scenePhase observer calls this again.
+        guard scenePhase == .active, !started else { return }
         // onAppear can fire again; a second start() on a running session fails.
         guard session.state == .initializing else { return }
+        started = true
         let images = folder.appendingPathComponent("Images")
         try? FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
         var config = ObjectCaptureSession.Configuration()
@@ -173,7 +225,7 @@ struct CaptureScreen: View {
         session.start(imagesDirectory: images, configuration: config)
     }
 
-    private static func newFolder() -> URL {
+    fileprivate static func newFolder() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("captures/\(UUID().uuidString)")
     }
