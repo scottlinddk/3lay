@@ -34,7 +34,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         CFBundleURLTypes:
           - CFBundleURLName: app.scan3d.pairing
             CFBundleURLSchemes: [scan3d]

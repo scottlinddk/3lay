@@ -35,7 +35,8 @@ public struct RootView: View {
         case .ready:
             HomeView()
         case .needsPairing:
-            welcome.padding()
+            ScrollView { welcome.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity) }
+                .scrollDismissesKeyboard(.interactively)
         case .lidarReady:
             if let pending = model.pendingLidar, let record = model.catalog.record(id: pending.id) {
                 ReviewView(record: record, folder: pending.folder).id(record.id)
@@ -101,6 +102,8 @@ public struct RootView: View {
                     TextField("scan3d://pair?server=...&token=...", text: $pairingText)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .textFieldStyle(.roundedBorder)
+                        .keyboardType(.URL)
+                        .accessibilityLabel("Server pairing link")
                     Button("Pair") { if let url = URL(string: pairingText) { model.receive(url: url) } }
                 }
                 .padding(.top, 8)

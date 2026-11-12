@@ -6,6 +6,7 @@ import SwiftUI
 struct NewScanSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         NavigationStack {
@@ -31,7 +32,8 @@ struct NewScanSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
-        .presentationDetents([.medium])
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func option(
@@ -48,7 +50,8 @@ struct NewScanSheet: View {
                     Text(available ? detail : unavailable).font(.subheadline).foregroundStyle(.secondary)
                 }
             }
-            .padding(.vertical, 4)
+            .frame(minHeight: 44)
+            .padding(.vertical, 8)
         }
         .disabled(!available)
         .accessibilityElement(children: .combine)

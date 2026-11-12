@@ -7,6 +7,7 @@ struct HomeView: View {
     @EnvironmentObject var model: AppModel
     @State private var showNewScan = false
     @State private var showSettings = false
+    @State private var requestNearbyMac = false
     @State private var pendingDelete: ScanRecord?
 
     var body: some View {
@@ -37,24 +38,32 @@ struct HomeView: View {
                             Button { model.open(scan) } label: { ScanRow(scan: scan, folder: model.catalog.folderURL(scan)) }
                                 .buttonStyle(.plain)
                                 .disabled(!(scan.isRecoverable || scan.isDelivered))
-                                .swipeActions {
+                                .swipeActions(allowsFullSwipe: false) {
                                     Button("Delete", role: .destructive) { pendingDelete = scan }
                                 }
                         }
                     }
                 }
             }
-            .navigationTitle("3lay")
+            .listStyle(.insetGrouped)
+            .navigationTitle("Scans")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItem(placement: .bottomBar) {
                     Button { showNewScan = true } label: { Label("New Scan", systemImage: "plus") }
                 }
             }
             .sheet(isPresented: $showNewScan) { NewScanSheet().environmentObject(model) }
-            .sheet(isPresented: $showSettings) { SettingsView().environmentObject(model) }
+            .sheet(isPresented: $showSettings, onDismiss: {
+                if requestNearbyMac {
+                    requestNearbyMac = false
+                    model.showNearbyMac = true
+                }
+            }) {
+                SettingsView { requestNearbyMac = true }.environmentObject(model)
+            }
             .confirmationDialog(
                 "Delete this scan?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
                 titleVisibility: .visible, presenting: pendingDelete
@@ -71,16 +80,21 @@ struct HomeView: View {
 private struct ScanRow: View {
     let scan: ScanRecord
     let folder: URL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 12) {
-            ScanThumbnailView(folder: folder, kind: scan.kind)
+            if !dynamicTypeSize.isAccessibilitySize {
+                ScanThumbnailView(folder: folder, kind: scan.kind).accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(scan.name.isEmpty ? (scan.kind == .lidar ? "LiDAR scan" : "Scan") : scan.name).font(.headline)
                 Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                Text(status.text).font(.footnote).foregroundStyle(status.color)
             }
             Spacer(minLength: 0)
-            Text(status.text).font(.footnote).foregroundStyle(status.color)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold)).foregroundStyle(.tertiary).accessibilityHidden(true)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

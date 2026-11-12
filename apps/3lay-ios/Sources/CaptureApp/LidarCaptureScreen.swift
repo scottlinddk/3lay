@@ -7,6 +7,7 @@ struct LidarCaptureScreen: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var capture: LidarCapture
     @State private var failure: String?
+    @State private var confirmCancel = false
 
     /// `folder` comes from the catalog record the model created, so the scan is tracked from its first frame.
     init(folder: URL) { _capture = StateObject(wrappedValue: LidarCapture(folder: folder)) }
@@ -14,42 +15,61 @@ struct LidarCaptureScreen: View {
     private var isBusy: Bool { capture.state != .capturing }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        GeometryReader { geometry in
             LidarPreview(capture: capture).ignoresSafeArea()
-            VStack(spacing: 12) {
-                Text(message).font(.subheadline).multilineTextAlignment(.center)
-                Text("Photos: \(capture.photoCount) · Mesh: \(capture.triangleCount / 1000)k triangles").font(.headline)
-                HStack(spacing: 12) {
-                    Gauge(value: Double(capture.photoDetail), in: 0...100) { Text("Photo detail") } currentValueLabel: {
-                        Text("\(capture.photoDetail)%").monospacedDigit()
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            Text(message).font(.subheadline).multilineTextAlignment(.center)
+                            Text("Photos: \(capture.photoCount) · Mesh: \(capture.triangleCount / 1000)k triangles").font(.headline)
+                            HStack(spacing: 12) {
+                                Gauge(value: Double(capture.photoDetail), in: 0...100) { Text("Photo detail") } currentValueLabel: {
+                                    Text("\(capture.photoDetail)%").monospacedDigit()
+                                }
+                                .gaugeStyle(.accessoryCircularCapacity)
+                                .tint(capture.photoDetail >= 85 ? .green : .orange)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Label("needs photos", systemImage: "circle.fill").foregroundStyle(.red)
+                                    Label("covered", systemImage: "circle.fill").foregroundStyle(.green)
+                                    Text("Depth frames: \(capture.depthFrameCount)\(capture.highResCount > 0 ? " · full-resolution: \(capture.highResCount)" : "")")
+                                        .foregroundStyle(.secondary)
+                                    if capture.roomPlanActive { Text("Room layout: on").foregroundStyle(.secondary) }
+                                }
+                                .font(.caption)
+                            }
+                            if capture.coveragePlateau {
+                                Text("Photo detail is not improving much. You can save and review what you have; you do not need to keep circling.")
+                                    .font(.footnote).multilineTextAlignment(.center)
+                            }
+                            if capture.state == .finishing {
+                                ProgressView("Saving scan...")
+                            } else {
+                                Button("Finish") { Task { await finish() } }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(isBusy || capture.triangleCount == 0 || capture.photoCount == 0)
+                            }
+                            Button("Cancel", role: .cancel) {
+                                if capture.photoCount > 0 { confirmCancel = true }
+                                else { Task { await cancel() } }
+                            }
+                            .frame(minHeight: 44)
+                            .disabled(isBusy)
+                        }
+                        .padding()
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity)
+                        .controlSize(.large)
                     }
-                    .gaugeStyle(.accessoryCircularCapacity)
-                    .tint(capture.photoDetail >= 85 ? .green : .orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label("needs photos", systemImage: "circle.fill").foregroundStyle(.red)
-                        Label("covered", systemImage: "circle.fill").foregroundStyle(.green)
-                        Text("Depth frames: \(capture.depthFrameCount)\(capture.highResCount > 0 ? " · full-resolution: \(capture.highResCount)" : "")")
-                            .foregroundStyle(.secondary)
-                        if capture.roomPlanActive { Text("Room layout: on").foregroundStyle(.secondary) }
-                    }
-                    .font(.caption)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: geometry.size.height * 0.48)
+                    .background(.regularMaterial)
                 }
-                if capture.coveragePlateau {
-                    Text("Photo detail is not improving much. You can save and review what you have; you do not need to keep circling.")
-                        .font(.footnote).multilineTextAlignment(.center)
-                }
-                if capture.state == .finishing {
-                    ProgressView("Saving scan...")
-                } else {
-                    Button("Finish") { Task { await finish() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isBusy || capture.triangleCount == 0 || capture.photoCount == 0)
-                }
-                Button("Cancel", role: .cancel) { Task { await cancel() } }.disabled(capture.state == .cancelling)
-            }
-            .padding()
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .padding()
+        }
+        .confirmationDialog("Discard this capture?", isPresented: $confirmCancel, titleVisibility: .visible) {
+            Button("Discard capture", role: .destructive) { Task { await cancel() } }
+            Button("Keep scanning", role: .cancel) {}
+        } message: {
+            Text("The photos and room data from this capture will be deleted.")
         }
     }
 
