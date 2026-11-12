@@ -188,9 +188,11 @@ final class LidarCapture: NSObject, ObservableObject {
 
     /// Refuses further photo writes and returns once every queued one has completed or been skipped.
     private func stopEncoding() async {
+        // `acceptingWrites` is only touched on `encodeQueue`, so handing `self` to that queue is safe.
+        nonisolated(unsafe) let capture = self
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             encodeQueue.async {
-                self.acceptingWrites = false
+                capture.acceptingWrites = false
                 done.resume()
             }
         }
@@ -260,7 +262,7 @@ final class LidarCapture: NSObject, ObservableObject {
         let name = String(format: "photos/%04d.jpg", index)
         encodeQueue.async { [weak self] in
             guard let self else { return }
-            if self.acceptingWrites, let jpeg = try? self.ciContext.jpegRepresentation(
+            if self.acceptingWrites, let jpeg = self.ciContext.jpegRepresentation(
                 of: CIImage(cvPixelBuffer: buffer), colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                 options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.9]),
                (try? jpeg.write(to: self.folder.appendingPathComponent(name), options: .atomic)) != nil {
@@ -488,7 +490,7 @@ final class LidarCapture: NSObject, ObservableObject {
             if scale < 1 { image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale)) }
             let width = Int(image.extent.width.rounded()), height = Int(image.extent.height.rounded())
             guard width > 0, height > 0,
-                  let jpeg = try? self.ciContext.jpegRepresentation(
+                  let jpeg = self.ciContext.jpegRepresentation(
                     of: image, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                     options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.9]),
                   (try? jpeg.write(to: self.folder.appendingPathComponent(name), options: .atomic)) != nil,
@@ -696,9 +698,11 @@ final class LidarCapture: NSObject, ObservableObject {
     }
 
     private func drainRecording() async -> (photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]) {
-        await withCheckedContinuation { (done: CheckedContinuation<(photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]), Never>) in
+        // `photos` and `depthFrames` are only touched on `encodeQueue`, so handing `self` to that queue is safe.
+        nonisolated(unsafe) let capture = self
+        return await withCheckedContinuation { (done: CheckedContinuation<(photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]), Never>) in
             encodeQueue.async {
-                done.resume(returning: (self.photos, self.depthFrames.sorted { $0.timestamp < $1.timestamp }))
+                done.resume(returning: (capture.photos, capture.depthFrames.sorted { $0.timestamp < $1.timestamp }))
             }
         }
     }

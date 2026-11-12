@@ -94,7 +94,7 @@ public final class OperationTracker: ObservableObject {
             } catch {
                 result = Task.isCancelled ? .cancelled : .failed(message: error.localizedDescription)
             }
-            await self?.finish(id, result)
+            self?.finish(id, result)
         }
         return true
     }
