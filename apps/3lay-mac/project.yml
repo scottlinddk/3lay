@@ -22,6 +22,7 @@ targets:
       - PhotoQuality.swift
       - ReconstructionReport.swift
       - LidarImport.swift
+      - LidarSidecars.swift
       - LanAdvertiser.swift
       - PhoneReceiver.swift
       - ThreeLayMacOS.swift

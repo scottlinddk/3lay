@@ -31,9 +31,14 @@ that USDZ. A model the Mac builds from photos is not sent back to the phone yet.
 
 1. Capture with `ObjectCaptureSession` (needs LiDAR; checked at runtime, not by model name).
    There is a second mode, **Scan a room or large object (LiDAR)** (`LidarCapture.swift`): an ARKit
-   session builds the LiDAR scene mesh while posed photos are saved as you move (not while you move
-   too fast or tracking is poor). It writes a `3lay-lidar/1` bundle (`LidarManifest.swift`,
-   `PLYWriter.swift`) and sends it to a paired Mac as `*.lidar.zip`. It needs a paired Mac, and an unsent
+   session builds the LiDAR scene mesh, drawn red where photos are still missing and green where covered
+   (`CoverageMap`, `CoverageOverlay`), while posed photos are saved when they add new coverage (not while
+   you move too fast or tracking is poor). It also keeps depth keyframes (`DepthKeyframePolicy`), swaps in
+   an occasional full-resolution still (`HighResPolicy`) and records Apple's RoomPlan layout beside the mesh
+   (`RoomPlanRecorder`; rooms only, RoomPlan does not model small objects). It writes a `3lay-lidar/3`
+   bundle (`LidarManifest.swift`, `PLYWriter.swift`; version 1 or 2 when there are no extras) and sends it
+   to a paired Mac as `*.lidar.zip`. The live coverage and RoomPlan parts need a device; only their rules
+   are unit tested. It needs a paired Mac, and an unsent
    scan is only kept until the app closes.
 2. **Send to Mac:** photos plus `manifest.json` upload as `photo` and `capture_bundle` artifacts,
    then a `reconstruct` task is queued for the Mac worker (#23). Uploads resume after a lost

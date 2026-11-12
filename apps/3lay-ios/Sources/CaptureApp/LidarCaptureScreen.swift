@@ -19,6 +19,25 @@ struct LidarCaptureScreen: View {
             VStack(spacing: 12) {
                 Text(message).font(.subheadline).multilineTextAlignment(.center)
                 Text("Photos: \(capture.photoCount) · Mesh: \(capture.triangleCount / 1000)k triangles").font(.headline)
+                HStack(spacing: 12) {
+                    Gauge(value: Double(capture.photoDetail), in: 0...100) { Text("Photo detail") } currentValueLabel: {
+                        Text("\(capture.photoDetail)%").monospacedDigit()
+                    }
+                    .gaugeStyle(.accessoryCircularCapacity)
+                    .tint(capture.photoDetail >= 85 ? .green : .orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("needs photos", systemImage: "circle.fill").foregroundStyle(.red)
+                        Label("covered", systemImage: "circle.fill").foregroundStyle(.green)
+                        Text("Depth frames: \(capture.depthFrameCount)\(capture.highResCount > 0 ? " · full-resolution: \(capture.highResCount)" : "")")
+                            .foregroundStyle(.secondary)
+                        if capture.roomPlanActive { Text("Room layout: on").foregroundStyle(.secondary) }
+                    }
+                    .font(.caption)
+                }
+                if capture.coveragePlateau {
+                    Text("Photo detail is not improving much. You can save and review what you have; you do not need to keep circling.")
+                        .font(.footnote).multilineTextAlignment(.center)
+                }
                 if capture.state == .finishing {
                     ProgressView("Saving scan...")
                 } else {
@@ -40,7 +59,7 @@ struct LidarCaptureScreen: View {
         case .finishing: return "Saving the scan. This can take a moment for large scenes."
         case .cancelling: return "Cancelling..."
         default:
-            return capture.warning ?? "Walk slowly around the scene. The coloured mesh shows what LiDAR has seen. Photos are taken as you move."
+            return capture.warning ?? "Walk slowly around the scene. Red mesh still needs photos, green is covered. Photos are taken as you move."
         }
     }
 

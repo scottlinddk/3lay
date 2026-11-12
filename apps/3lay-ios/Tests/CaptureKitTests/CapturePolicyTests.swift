@@ -94,4 +94,19 @@ final class CapturePolicyTests: XCTestCase {
         XCTAssertGreaterThan(checker, soft)
         XCTAssertGreaterThan(soft, flat)
     }
+
+    func testFrameThatAddsNoCoverageIsSkippedButUnknownCoverageIsNot() {
+        var p = CapturePolicy()
+        XCTAssertEqual(p.evaluate(frame(0), thermal: .nominal, coverageGain: { nil }), .take)  // no mesh yet
+        XCTAssertEqual(p.evaluate(frame(1, x: 0.3), thermal: .nominal, coverageGain: { 0.01 }), .skip(.noNewCoverage))
+        XCTAssertEqual(p.evaluate(frame(2, x: 0.3), thermal: .nominal, coverageGain: { 0.5 }), .take)
+        XCTAssertNil(CapturePolicy.Skip.noNewCoverage.guidance)
+    }
+
+    func testCoverageIsNotMeasuredWhenACheaperRuleAlreadySkips() {
+        var p = CapturePolicy()
+        var asked = false
+        _ = p.evaluate(frame(0, tracking: false), thermal: .nominal, coverageGain: { asked = true; return 1 })
+        XCTAssertFalse(asked)
+    }
 }

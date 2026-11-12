@@ -11,6 +11,8 @@ swiftc -disable-sandbox -swift-version 5 -parse-as-library PhotoQuality.swift Ph
 .build/PhotoQualityCheck
 swiftc -disable-sandbox -swift-version 5 -parse-as-library ReconstructionReport.swift ReportCheck.swift -o .build/ReportCheck
 .build/ReportCheck
+swiftc -disable-sandbox -swift-version 5 -parse-as-library LidarSidecars.swift LidarSidecarsCheck.swift -o .build/LidarSidecarsCheck
+.build/LidarSidecarsCheck
 # Real iOS-side LanClient against the real PhoneReceiver on loopback.
 swiftc -disable-sandbox -swift-version 5 -parse-as-library $SHARED_SOURCES Mesh.swift PhoneReceiver.swift LanAdvertiser.swift ReceiverCheck.swift -o .build/ReceiverCheck
 .build/ReceiverCheck
