@@ -18,6 +18,13 @@ enum OnDeviceReconstruction {
     /// `progress` gets 0...1 as the model is built.
     /// Cancelling the calling task cancels the session, deletes the partial model and throws `CancellationError`.
     static func run(imagesDirectory: URL, output: URL, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
+        try await ScanAdvisor.runner.withSuspended {
+            try await reconstruct(imagesDirectory: imagesDirectory, output: output, progress: progress)
+        }
+    }
+
+    private static func reconstruct(imagesDirectory: URL, output: URL,
+                                    progress: @escaping @Sendable (Double) -> Void) async throws {
         let session = try PhotogrammetrySession(input: imagesDirectory)
         try await withTaskCancellationHandler {
             try session.process(requests: [.modelFile(url: output, detail: .reduced)])

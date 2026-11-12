@@ -11,6 +11,7 @@ struct ReviewView: View {
 
     @State private var name: String
     @State private var photos = 0
+    @State private var quality: ScanQualitySnapshot?
     @State private var confirmDiscard = false
 
     init(record: ScanRecord, folder: URL) {
@@ -31,6 +32,7 @@ struct ReviewView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                 }
+                if let quality { ScanQualitySection(snapshot: quality, folder: folder) }
                 Section("Scan name") {
                     TextField("Name", text: $name)
                         .submitLabel(.done)
@@ -102,7 +104,15 @@ struct ReviewView: View {
                 .background(.bar)
             }
         }
-        .task { photos = ScanThumbnail.photoCount(folder: folder, kind: record.kind) }
+        .task {
+            photos = ScanThumbnail.photoCount(folder: folder, kind: record.kind)
+            var snapshot = ScanQualityFiles.loadSnapshot(folder: folder)
+                ?? ScanQualitySnapshot(mode: record.kind == .lidar ? .lidar : .object, photoCount: photos)
+            snapshot.photoCount = photos
+            // Historical thermal state must not be presented as a current instruction.
+            snapshot.thermal = Diagnostics.sample().thermal
+            quality = snapshot
+        }
         .confirmationDialog("Discard this scan?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard scan", role: .destructive) {
                 if record.kind == .lidar { model.discardLidar() } else { model.discardCapture() }
