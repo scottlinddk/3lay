@@ -131,7 +131,7 @@ enum LidarSidecars {
         }
 
         private static func nearest(
-            to p: SIMD3<Float>, grid: [SIMD3<Int32>: [Int32]], key k: SIMD3<Int32], vertices: [SIMD3<Float>]
+            to p: SIMD3<Float>, grid: [SIMD3<Int32>: [Int32]], key k: SIMD3<Int32>, vertices: [SIMD3<Float>]
         ) -> Float? {
             var best = Float.infinity
             for dx in Int32(-1)...1 { for dy in Int32(-1)...1 { for dz in Int32(-1)...1 {
