@@ -119,3 +119,11 @@ layout or camera interaction. Before release, check on a LiDAR iPhone and iPad:
       Cancel bulk deletion preserves unfinished scans.
 - [ ] New Scan sheet: expand by dragging, scroll at large text sizes, dismiss with Cancel, and start
       each supported capture mode.
+
+## On-device Scan Coach (experimental)
+
+Settings → Scan assistance enables optional on-device action prioritization (iOS 26+) and sampled-photo
+assessment (iOS 27+, vision-capable system model). Both are off by default. Review shows measured quality
+findings on all supported capture devices; AI failures fall back to those findings. Advice never edits
+original photos or geometry. See [Scan Coach implementation and evaluation](../../docs/SCAN_COACH.md)
+for runtime behavior, sidecar metadata, device checks, and the paired-trial evaluation tool.

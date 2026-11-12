@@ -37,6 +37,9 @@ struct LidarCaptureScreen: View {
                                 }
                                 .font(.caption)
                             }
+                            LiveScanCoach(snapshot: capture.qualitySnapshot,
+                                          event: capture.coveragePlateau ? "coverage-plateau" : "",
+                                          active: capture.state == .capturing && capture.warning == nil)
                             if capture.coveragePlateau {
                                 Text("Photo detail is not improving much. You can save and review what you have; you do not need to keep circling.")
                                     .font(.footnote).multilineTextAlignment(.center)

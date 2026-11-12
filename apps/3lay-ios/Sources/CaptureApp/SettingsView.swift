@@ -9,11 +9,22 @@ struct SettingsView: View {
     @State private var confirmForgetMac = false
     @State private var confirmUnpair = false
     @State private var confirmDiscard = false
+    @AppStorage("scanCoachEnabled") private var scanCoachEnabled = false
+    @AppStorage("scanCoachImages") private var scanCoachImages = false
     var findMac: () -> Void
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Toggle("On-device scan coach", isOn: $scanCoachEnabled)
+                    Toggle("Assess sampled photos", isOn: $scanCoachImages).disabled(!scanCoachEnabled)
+                    if let message = ScanAdvisor.availabilityMessage {
+                        Text(message).font(.footnote).foregroundStyle(.secondary)
+                    }
+                } header: { Text("Scan assistance") } footer: {
+                    Text("Experimental. Uses Apple Intelligence on this device to prioritize capture advice. Optional photo assessment checks up to three photos on supported models. Originals stay unchanged. Measured guidance works without AI.")
+                }
                 Section("Mac") {
                     if let mac = model.pairedMac {
                         LabeledContent("Paired with", value: mac.name)

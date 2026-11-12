@@ -66,6 +66,13 @@ final class LidarCapture: NSObject, ObservableObject {
     // Main thread only:
     private var startTimestamp: TimeInterval?
     private var policy = CapturePolicy()
+    private var quality = ScanQualityAccumulator()
+
+    var qualitySnapshot: ScanQualitySnapshot {
+        quality.snapshot(photoCount: photoCount,
+                         coverage: coverage.observedArea >= coverage.minimumAreaForPercent ? photoDetail : nil,
+                         plateau: coveragePlateau, thermal: Diagnostics.sample().thermal)
+    }
     private var encoding = false
     private var queued = 0
     private var lastMeshCount = Date.distantPast
@@ -218,11 +225,13 @@ final class LidarCapture: NSObject, ObservableObject {
             transform: transform, time: now, trackingNormal: tracking, sharpness: nil,
             exposureDuration: frame.camera.exposureDuration)
         let buffer = frame.capturedImage
-        switch policy.evaluate(
+        let decision = policy.evaluate(
             candidate, thermal: Self.thermal, busy: encoding,
             coverageGain: { [self] in coverageGain(of: frame) },
             measureSharpness: { Self.sharpness(of: buffer) }
-        ) {
+        )
+        quality.record(decision)
+        switch decision {
         case .skip(let reason):
             // Only reasons the person can act on are shown; the rest (too soon, same view) are silent.
             setWarning(reason.guidance)
@@ -639,7 +648,12 @@ final class LidarCapture: NSObject, ObservableObject {
         finishTask = task
         do {
             let result = try await task.value
-            if state == .finishing { state = .saved }
+            if state == .finishing {
+                state = .saved
+                var snapshot = qualitySnapshot
+                snapshot.photoCount = result.photos
+                try? ScanQualityFiles.save(snapshot, named: ScanQualityFiles.snapshotName, folder: folder)
+            }
             return result
         } catch {
             // Keep the photos, drop the half-made mesh so nothing looks like a finished scan.

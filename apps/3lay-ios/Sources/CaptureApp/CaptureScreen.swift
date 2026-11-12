@@ -12,6 +12,8 @@ struct CaptureScreen: View {
     @State private var confirmEarlyFinish = false
     @State private var confirmCancel = false
     @State private var failureMessage: String?
+    @State private var completedPasses = 0
+    @State private var observedQualityFeedback = Set<String>()
 
     var body: some View {
         GeometryReader { geometry in
@@ -24,6 +26,9 @@ struct CaptureScreen: View {
                                 Text("Photos: \(session.numberOfShotsTaken) of \(Submission.minimumPhotos)+ recommended")
                                     .font(.headline)
                             }
+                            LiveScanCoach(snapshot: qualitySnapshot,
+                                          event: session.userCompletedScanPass ? "pass-completed" : "",
+                                          active: session.state == .capturing && !session.isPaused && session.feedback.isEmpty)
                             controls
                         }
                         .padding()
@@ -56,8 +61,21 @@ struct CaptureScreen: View {
         } message: {
             Text("This capture will end without saving a completed scan.")
         }
+        .onChange(of: session.userCompletedScanPass) { _, completed in
+            if completed { completedPasses += 1 }
+        }
+        .onChange(of: session.feedback) { _, _ in
+            // Retain quality warnings, but not stale direction/distance instructions.
+            observedQualityFeedback.formUnion(qualitySnapshot.feedback.filter { ["dark", "fast"].contains($0) })
+        }
         .onChange(of: finished) { _, done in
-            if done { model.captureFinished(folder: folder) }
+            if done {
+                var saved = qualitySnapshot
+                saved.completedPass = completedPasses > 0 || session.userCompletedScanPass
+                saved.feedback = Array(observedQualityFeedback).sorted()
+                try? ScanQualityFiles.save(saved, named: ScanQualityFiles.snapshotName, folder: folder)
+                model.captureFinished(folder: folder)
+            }
         }
     }
 
@@ -93,6 +111,18 @@ struct CaptureScreen: View {
             else { session.cancel(); model.cancelCapture() }
         }
         .frame(minHeight: 44)
+    }
+
+    private var qualitySnapshot: ScanQualitySnapshot {
+        var feedback: [String] = []
+        if session.feedback.contains(.movingTooFast) { feedback.append("fast") }
+        if session.feedback.contains(.objectTooClose) { feedback.append("close") }
+        if session.feedback.contains(.objectTooFar) { feedback.append("far") }
+        if session.feedback.contains(.environmentLowLight) || session.feedback.contains(.environmentTooDark) { feedback.append("dark") }
+        if session.feedback.contains(.outOfFieldOfView) { feedback.append("outOfView") }
+        return .init(mode: .object, photoCount: session.numberOfShotsTaken,
+                     completedPass: session.userCompletedScanPass, feedback: feedback,
+                     thermal: Diagnostics.sample().thermal)
     }
 
     /// One plain sentence for what the user should do now. ARKit reports what is wrong

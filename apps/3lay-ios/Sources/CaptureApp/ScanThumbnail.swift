@@ -25,8 +25,7 @@ enum ScanThumbnail {
 
     /// Photos in the scan, counted from disk (the object-capture records do not store a count).
     static func photoCount(folder: URL, kind: ScanRecord.Kind) -> Int {
-        let directory = folder.appendingPathComponent(kind == .lidar ? "photos" : "Images")
-        return ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { !$0.hasPrefix(".") }.count
+        ScanQualityFiles.photoURLs(folder: folder, mode: kind == .lidar ? .lidar : .object).count
     }
 }
 

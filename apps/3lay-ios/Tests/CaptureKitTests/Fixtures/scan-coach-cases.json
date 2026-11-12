@@ -1,0 +1,97 @@
+[
+  {
+    "name": "Sparse object",
+    "snapshot": {
+      "version": 1,
+      "mode": "object",
+      "photoCount": 8,
+      "feedback": [],
+      "thermal": "nominal"
+    },
+    "expected": [
+      "morePhotos"
+    ]
+  },
+  {
+    "name": "Healthy object: completeness unknown",
+    "snapshot": {
+      "version": 1,
+      "mode": "object",
+      "photoCount": 100,
+      "feedback": [],
+      "thermal": "nominal"
+    },
+    "expected": []
+  },
+  {
+    "name": "Unmeasured LiDAR: no invented coverage",
+    "snapshot": {
+      "version": 1,
+      "mode": "lidar",
+      "photoCount": 50,
+      "feedback": [],
+      "thermal": "nominal"
+    },
+    "expected": []
+  },
+  {
+    "name": "Coverage plateau",
+    "snapshot": {
+      "version": 1,
+      "mode": "lidar",
+      "photoCount": 120,
+      "feedback": [],
+      "thermal": "nominal",
+      "observedCoverage": 70,
+      "coveragePlateau": true
+    },
+    "expected": [
+      "coverObservedSurfaces",
+      "changeViewpoint"
+    ]
+  },
+  {
+    "name": "Observed surfaces covered, unseen unknown",
+    "snapshot": {
+      "version": 1,
+      "mode": "lidar",
+      "photoCount": 120,
+      "feedback": [],
+      "thermal": "nominal",
+      "observedCoverage": 100
+    },
+    "expected": []
+  },
+  {
+    "name": "Dark and moving scan",
+    "snapshot": {
+      "version": 1,
+      "mode": "lidar",
+      "photoCount": 40,
+      "feedback": [],
+      "thermal": "nominal",
+      "sampledFrames": 100,
+      "darkFrames": 30,
+      "fastFrames": 20
+    },
+    "expected": [
+      "addLight",
+      "holdSteady"
+    ]
+  },
+  {
+    "name": "Tracking problem",
+    "snapshot": {
+      "version": 1,
+      "mode": "lidar",
+      "photoCount": 40,
+      "feedback": [],
+      "thermal": "nominal",
+      "sampledFrames": 100,
+      "trackingFrames": 40
+    },
+    "expected": [
+      "improveTracking"
+    ]
+  }
+]
