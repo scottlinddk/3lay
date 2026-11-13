@@ -41,29 +41,51 @@ private struct ActiveCaptureScreen: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ObjectCaptureView(session: session)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+            // The camera fills the whole screen; guidance and buttons float on top of it so the
+            // object stays visible. Each overlay piece has its own small material background
+            // instead of one big opaque panel.
+            ZStack {
+                ObjectCaptureView(session: session)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    HStack {
+                        cancelButton
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    Spacer(minLength: 0)
+
                     ScrollView {
-                        VStack(spacing: 12) {
-                            Text(guidance).font(.subheadline).multilineTextAlignment(.center)
-                            if session.state == .capturing {
-                                Text("Photos: \(session.numberOfShotsTaken) of \(Submission.minimumPhotos)+ recommended")
-                                    .font(.headline)
+                        VStack(spacing: 10) {
+                            VStack(spacing: 4) {
+                                Text(guidance).font(.subheadline).multilineTextAlignment(.center)
+                                if session.state == .capturing {
+                                    Text("Photos: \(session.numberOfShotsTaken) of \(Submission.minimumPhotos)+ recommended")
+                                        .font(.footnote.weight(.semibold))
+                                }
+                                LiveScanCoach(snapshot: qualitySnapshot,
+                                              event: session.userCompletedScanPass ? "pass-completed" : "",
+                                              active: session.state == .capturing && !session.isPaused && session.feedback.isEmpty)
                             }
-                            LiveScanCoach(snapshot: qualitySnapshot,
-                                          event: session.userCompletedScanPass ? "pass-completed" : "",
-                                          active: session.state == .capturing && !session.isPaused && session.feedback.isEmpty)
-                            controls
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                            controls.controlSize(.large)
                         }
-                        .padding()
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
                         .frame(maxWidth: 560)
                         .frame(maxWidth: .infinity)
-                        .controlSize(.large)
                     }
                     .scrollBounceBehavior(.basedOnSize)
-                    .frame(maxHeight: geometry.size.height * 0.48)
-                    .background(.regularMaterial)
+                    .frame(maxHeight: geometry.size.height * 0.30)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
+            }
         }
         .onAppear(perform: start)
         .onChange(of: scenePhase) { _, phase in if phase == .active { start() } }
@@ -141,10 +163,17 @@ private struct ActiveCaptureScreen: View {
                 ProgressView()
             }
         }
+    }
+
+    /// Top-left, so it does not take a row of space above the camera's lower edge.
+    private var cancelButton: some View {
         Button(failureMessage == nil ? "Cancel" : "Back", role: .cancel) {
             if session.numberOfShotsTaken > 0 && failureMessage == nil { confirmCancel = true }
             else { session.cancel(); model.cancelCapture() }
         }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .background(.ultraThinMaterial, in: Capsule())
         .frame(minHeight: 44)
     }
 
