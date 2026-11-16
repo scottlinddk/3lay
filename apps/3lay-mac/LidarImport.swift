@@ -1,6 +1,6 @@
 import Foundation
 
-/// Unpacks a LiDAR scan bundle from the phone (`*.lidar.zip`, format `3lay-lidar/1` to `/3`): an ARKit mesh
+/// Unpacks a LiDAR scan bundle from the phone (`*.lidar.zip`, format `3lay-lidar/1` to `/4`): an ARKit mesh
 /// as a binary PLY in meters, Z up, plus photos with camera poses. The mesh is imported as is.
 /// The photos are kept next to it with their poses, ready for texturing or refinement later; nothing
 /// on the Mac uses them yet.

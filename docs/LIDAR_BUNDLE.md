@@ -1,10 +1,12 @@
-# LiDAR scan bundle (`3lay-lidar/3`)
+# LiDAR scan bundle (`3lay-lidar/4`)
 
 A LiDAR scan is a folder the phone zips as `<name>.lidar.zip`. The Mac imports the mesh and keeps the rest
 next to it. Version 2 only adds fields to version 1: a reader that knows version 1 still reads everything it
 knew, and the Mac accepts any `3lay-lidar/` format, so an older Mac imports a v2 or v3 bundle and ignores what it
 does not know. Version 3 again only adds fields: depth keyframes, a RoomPlan layout and a flag for full-resolution
-stills. The format and the `capabilities` list follow what the bundle really contains: a scan with none of the
+stills. Version 4 adds, again as extra fields only, what a reader needs to judge and improve dimensional accuracy: the
+camera motion behind each photo, poses in ARKit's final map, and a scan-level accuracy summary (see
+[Accuracy evidence](#accuracy-evidence-v4)). The format and the `capabilities` list follow what the bundle really contains: a scan with none of the
 extras is still written as version 1 or 2.
 The Swift types are `LidarManifest`, `LidarGeometry` and `LidarBundleValidator` in `apps/3lay-ios/Sources/CaptureKit`;
 the numbers below are checked by tests there, not only described.
@@ -12,7 +14,7 @@ the numbers below are checked by tests there, not only described.
 ```
 manifest.json
 mesh/scan.ply          binary little-endian PLY, meters, Z up
-photos/NNNN.jpg        sRGB JPEG, raw sensor orientation (not rotated to portrait)
+photos/NNNN.jpg        sRGB JPEG (quality 0.95), raw sensor orientation (not rotated to portrait)
 depth/NNNN.depth       v2: Float32 little-endian, meters, row-major, depth.width x depth.height
 depth/NNNN.conf        v2: UInt8 per pixel, 0 = low, 1 = medium, 2 = high confidence
 depth/fNNNNN.depth     v3: depth keyframe, Float16 little-endian meters (or Float32, see `encoding`), own pose
@@ -67,13 +69,41 @@ about half the vertex spacing, so it detects drift or a wrong scale, not small e
 
 ## Full-resolution stills (v3)
 
-A photo with `highRes: true` is a still from `ARSession.captureHighResolutionFrame`, scaled to at most 3,024 px on its long
-edge, replacing the video frame that was saved first. It is requested rarely (at most every 3 s, only on a cool phone) and
+A photo with `highRes: true` is a still from `ARSession.captureHighResolutionFrame`, kept at full size (a 12 MP still is
+4,032 px wide; only larger frames are scaled down to that), replacing the video frame that was saved first. It is requested rarely (at most every 3 s, only on a cool phone) and
 kept only if it shows the same view (within 0.2 m and about 12 degrees), is larger, and was not exposed longer than the
 video frame. Its `transform`, `intrinsics`, `width`, `height` and `exposure` are the still's. Its `timestamp` stays the
 video frame's, which keeps photos in time order. The original video depth is moved to `depthFrames` as a Float32
 observation with its original pose, intrinsics and timestamp; the still has no per-photo `depth`. This avoids applying
 the still's changed camera pose to depth captured earlier.
+
+## Accuracy evidence (v4)
+
+Three additions, all optional fields. None of them says how far the mesh is from the real object; they are what the
+phone can measure about its own capture, for a reader to weigh.
+
+**Motion per photo.** `motion` holds `speed` (m/s), `angularSpeed` (rad/s, roll included) and `blurPixels`: an upper
+estimate of how far the camera's own motion smeared the image during the exposure,
+`focal length x exposure x (angularSpeed + speed / scene depth)`, with the lower quartile of that frame's depth as the scene
+depth (`CameraMotion`). A photo is only taken while this is under a budget: 1.5 px while photos are coming steadily,
+widening to at most 4 px after 1.5 s without one, so a dim room still gets photos. Rolling-shutter skew is not modelled.
+A full-resolution still has no `motion`: it is exposed at its own moment.
+
+**Refined poses.** `transform` is the camera pose as ARKit reported it in that frame. ARKit keeps correcting its map
+afterwards (most visibly when you come back to a place it has seen), and the mesh follows those corrections, but a
+recorded pose does not. So the phone drops an `ARAnchor` at the camera for every photo and reads the anchors back in the
+same instant it copies the mesh: `refinedTransform` is the pose in the **final** map, the one the mesh is in. Prefer it
+when placing a photo against the mesh. It equals `transform` where ARKit corrected nothing. Depth that was first saved
+with a photo and then detached by a still carries its own `refinedTransform`; other depth keyframes have none and can
+borrow the correction of the photos nearest in time.
+
+**Scan summary.** `accuracy` holds `trackingInterruptions` (times tracking stopped being normal: places where the parts
+before and after may not line up), the median and maximum `blurPixels`, the number of `refinedPoses`, and how far ARKit
+moved them: `medianPoseCorrection`, `maximumPoseCorrection` (meters) and `maximumPoseRotation` (radians). The maximum
+correction is drift the phone noticed and fixed, so distances across the scan cannot be trusted more closely than that;
+drift it never noticed is not in the figure.
+
+Capabilities: `motion/1`, `refined-poses/1`, `accuracy/1`.
 
 ## Room layout (v3)
 
@@ -100,11 +130,16 @@ surface, and a hint says when the figure has stopped improving (at least 65% cov
 ## Validation
 
 `LidarBundleValidator.validate` reports, with the photo it concerns: missing files, wrong depth/confidence sizes,
-non-rigid transforms, non-finite or non-positive intrinsics, a principal point outside the image, depth/photo
+non-rigid transforms (every axis unit length, axes perpendicular, no mirror, bottom row 0 0 0 1, all within 0.001: a
+pose that stretches by 0.1% already moves a point 5 m away by 5 mm), a non-rigid `refinedTransform`, non-finite or non-positive intrinsics, a principal point outside the image, depth/photo
 aspect mismatch, paths that leave the bundle, and depth without the `depth/1` capability. The phone drops depth
 that fails validation from a photo (the photo itself is kept) and refuses to save a bundle with other problems.
 
 ## Not in this format yet
 
 Per-pass object segmentation for multi-pass object capture, a 640x480 color image beside each depth keyframe, and
-Mac-side depth fusion. The Mac only uses the depth for the agreement check above.
+Mac-side depth fusion. The Mac only uses the depth for the agreement check above, and does not read the v4 accuracy
+fields yet: using `refinedTransform` and showing `accuracy` on the Mac is the next step.
+
+Also not recorded: lens distortion (ARKit publishes only the pinhole intrinsics) and a user-measured reference length.
+LiDAR scale is good to roughly a percent; a part that must fit needs one caliper measurement to correct the scale.

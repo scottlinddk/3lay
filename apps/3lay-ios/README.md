@@ -36,7 +36,10 @@ that USDZ. A model the Mac builds from photos is not sent back to the phone yet.
    you move too fast or tracking is poor). It also keeps depth keyframes (`DepthKeyframePolicy`), swaps in
    an occasional full-resolution still (`HighResPolicy`) and records Apple's RoomPlan layout beside the mesh
    (`RoomPlanRecorder`; rooms only, RoomPlan does not model small objects). It writes a `3lay-lidar/3`
-   bundle (`LidarManifest.swift`, `PLYWriter.swift`; version 1 or 2 when there are no extras) and sends it
+   bundle (`LidarManifest.swift`, `PLYWriter.swift`), in practice `3lay-lidar/4`: every photo also records the camera
+   motion during its exposure, is only taken while that motion would smear it by under 1.5 to 4 px (`CameraMotion`,
+   `CapturePolicy`), and gets its pose re-read from an ARKit anchor at the end so it sits in the same final map as the
+   mesh (`docs/LIDAR_BUNDLE.md`, "Accuracy evidence") and sends it
    to a paired Mac as `*.lidar.zip`. The live coverage and RoomPlan parts need a device; only their rules
    are unit tested. It needs a paired Mac, and an unsent
    scan is only kept until the app closes.
@@ -64,6 +67,10 @@ scheme; it cannot build for the simulator, which otherwise looks like a failing 
 - [ ] LiDAR iPhone/iPad on a current iOS: capture a real object end to end, note iOS version and model.
 - [ ] LiDAR mode: walk a room, the mesh overlay grows, photo count climbs, Finish, Send to Mac, the mesh
       appears on the Mac plate at about the real size and the right way up (Z up, not on its side).
+- [ ] LiDAR mode, accuracy (added with `3lay-lidar/4`, compiled and unit tested but never run on a device):
+      photos still arrive at a normal walking-and-pausing pace in a dim room; "Slow down or pause" appears only after
+      about 3 s of continuous movement; the frame rate holds with 300+ photos (one ARKit anchor each);
+      `manifest.json` has `accuracy`, and after walking a loop back to the start `maximumPoseCorrection` is above 0.
 - [ ] Unsupported (non-LiDAR) device shows the explanation instead of crashing.
 - [ ] Open a pairing link: a confirmation names the server host, nothing is stored until you accept, and a second link asks before replacing the current server. Server and token persist across relaunch; Unpair clears them.
 - [ ] Airplane mode mid-upload, then reconnect and relaunch: the upload resumes, no duplicates.
