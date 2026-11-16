@@ -38,6 +38,12 @@ public enum LidarBundleValidator {
             if let transform = simd_float4x4(flat: photo.transform) {
                 if !isRigid(transform) { add(name, "Transform is not a rigid camera pose.") }
             } else { add(name, "Transform must be 16 finite numbers.") }
+            if let refined = photo.refinedTransform, !isRigidPose(refined) {
+                add(name, "Refined transform is not a rigid camera pose.")
+            }
+            if let blur = photo.motion?.blurPixels, !(blur.isFinite && blur >= 0) {
+                add(name, "Motion blur must be a finite, non-negative number of pixels.")
+            }
             if photo.highRes == true, !capabilities.contains(LidarManifest.highResCapability) {
                 add(name, "Is a high-resolution still but the manifest does not declare \(LidarManifest.highResCapability).")
             }
@@ -72,13 +78,26 @@ public enum LidarBundleValidator {
         return issues
     }
 
-    /// A camera pose is a rigid motion: the rotation part must be orthonormal with determinant +1.
-    static func isRigid(_ transform: simd_float4x4) -> Bool {
-        let rotation = simd_float3x3(
-            SIMD3(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z),
-            SIMD3(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z),
-            SIMD3(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z))
-        return abs(rotation.determinant - 1) <= 1e-2 && simd_length(rotation.columns.0) >= 0.98 && simd_length(rotation.columns.0) <= 1.02
+    /// How far a pose may be from a perfect rigid motion. A pose that stretches by this much moves a point 5 m
+    /// away by 5 mm, so anything looser would let a scale error into the scan unnoticed. ARKit's own poses are
+    /// orthonormal to about 1e-6.
+    static let rigidTolerance: Float = 1e-3
+
+    /// A camera pose is a rigid motion: every axis has unit length, the axes are perpendicular, the determinant
+    /// is +1 (no mirror) and the bottom row is 0, 0, 0, 1 (no projection, no overall scale).
+    public static func isRigid(_ transform: simd_float4x4) -> Bool {
+        let c = transform.columns
+        let x = SIMD3(c.0.x, c.0.y, c.0.z), y = SIMD3(c.1.x, c.1.y, c.1.z), z = SIMD3(c.2.x, c.2.y, c.2.z)
+        let t = rigidTolerance
+        guard abs(simd_length(x) - 1) <= t, abs(simd_length(y) - 1) <= t, abs(simd_length(z) - 1) <= t else { return false }
+        guard abs(simd_dot(x, y)) <= t, abs(simd_dot(y, z)) <= t, abs(simd_dot(x, z)) <= t else { return false }
+        guard abs(simd_float3x3(x, y, z).determinant - 1) <= 3 * t else { return false }
+        return abs(c.0.w) <= t && abs(c.1.w) <= t && abs(c.2.w) <= t && abs(c.3.w - 1) <= t
+    }
+
+    /// `isRigid` for a pose as stored in a manifest (16 floats, column-major).
+    public static func isRigidPose(_ flat: [Float]) -> Bool {
+        simd_float4x4(flat: flat).map(isRigid) ?? false
     }
 
     private static func inside(_ path: String, of folder: URL) -> Bool {
@@ -108,6 +127,9 @@ public enum LidarBundleValidator {
             if let transform = simd_float4x4(flat: frame.transform) {
                 if !isRigid(transform) { add(name, "Transform is not a rigid camera pose.") }
             } else { add(name, "Transform must be 16 finite numbers.") }
+            if let refined = frame.refinedTransform, !isRigidPose(refined) {
+                add(name, "Refined transform is not a rigid camera pose.")
+            }
             if let k = LidarGeometry.Intrinsics(frame.intrinsics) {
                 if k.fx <= 0 || k.fy <= 0 { add(name, "Focal length must be positive.") }
                 if k.cx < 0 || k.cx > Float(frame.width) || k.cy < 0 || k.cy > Float(frame.height) {

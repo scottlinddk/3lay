@@ -92,6 +92,9 @@ final class LidarCapture: NSObject, ObservableObject {
     private var plateau = CoveragePlateau()
     private var lastMeshSample = Date.distantPast
     private var lastPhotoTime: TimeInterval = -.infinity
+    // Tracking starts out limited while ARKit initialises; only a later loss counts as an interruption.
+    private var trackingWasNormal = false
+    private var trackingInterruptions = 0
     private var meshSampling = false
     private var meshSignatures: [UUID: SIMD2<Int>] = [:]
     // coverageQueue only:
@@ -110,6 +113,23 @@ final class LidarCapture: NSObject, ObservableObject {
     private var photos: [LidarManifest.Photo] = []
     private var depthFrames: [LidarManifest.DepthFrame] = []
     private var acceptingWrites = true
+    /// The pose anchor behind each photo (by photo file) and behind depth that was first saved with a photo
+    /// (by depth file). See `poseAnchorName`.
+    private var photoAnchors: [String: UUID] = [:]
+    private var depthAnchors: [String: UUID] = [:]
+
+    // MARK: Fidelity
+
+    /// JPEG quality of saved photos. The photos are the reconstruction's input, so compression artifacts around
+    /// edges cost accuracy; 0.95 leaves them well under a pixel for about 40% more bytes than 0.9.
+    private static let jpegQuality = 0.95
+    /// Longest edge of a saved still. A 12 MP still (4032 px) is kept whole: scaling it down throws away the
+    /// resolution it was requested for. Only larger frames are scaled to this.
+    private static let maximumStillEdge = 4032
+    /// Name of the anchors dropped at the camera pose of each photo. ARKit moves anchors along when it corrects
+    /// its map, so at the end of the scan they hold each pose in the same final map as the mesh
+    /// (`LidarManifest.Photo.refinedTransform`).
+    private static let poseAnchorName = "3lay.pose"
 
     init(folder: URL) {
         self.folder = folder
@@ -225,11 +245,14 @@ final class LidarCapture: NSObject, ObservableObject {
 
         var tracking = false
         if case .normal = frame.camera.trackingState { tracking = true }
+        if trackingWasNormal, !tracking { trackingInterruptions += 1 }
+        trackingWasNormal = tracking
         recordDepthKeyframe(frame, tracking: tracking)
 
         let candidate = CapturePolicy.Frame(
             transform: transform, time: now, trackingNormal: tracking, sharpness: nil,
-            exposureDuration: frame.camera.exposureDuration)
+            exposureDuration: frame.camera.exposureDuration,
+            focalLength: frame.camera.intrinsics[0][0], sceneDepth: Self.sceneDepth(of: frame))
         let buffer = frame.capturedImage
         let decision = policy.evaluate(
             candidate, thermal: Self.thermal, busy: encoding,
@@ -240,7 +263,8 @@ final class LidarCapture: NSObject, ObservableObject {
         switch decision {
         case .skip(let reason):
             // Only reasons the person can act on are shown; the rest (too soon, same view) are silent.
-            setWarning(reason.guidance)
+            // Motion blur is waited out silently unless it has kept the scan from a photo for a while.
+            setWarning(reason.guidance ?? (policy.needsMotionBlurGuidance(at: now) ? CapturePolicy.motionBlurGuidance : nil))
             return
         case .take:
             setWarning(Self.thermal >= .serious ? "The phone is warm, so photos are taken less often." : nil)
@@ -257,6 +281,10 @@ final class LidarCapture: NSObject, ObservableObject {
         let exposure = LidarManifest.Exposure(
             duration: frame.camera.exposureDuration, offset: frame.camera.exposureOffset,
             ambientIntensity: frame.lightEstimate.map { Float($0.ambientIntensity) })
+        let motion = policy.lastMotion.map {
+            LidarManifest.Motion(speed: $0.speed, angularSpeed: $0.angularSpeed, blurPixels: policy.lastBlurPixels)
+        }
+        let anchorID = addPoseAnchor(at: transform)
         lastPhotoTime = now
         if let shot = coveragePhoto(of: frame) {
             coverage.add(shot)
@@ -268,14 +296,16 @@ final class LidarCapture: NSObject, ObservableObject {
             guard let self else { return }
             if self.acceptingWrites, let jpeg = self.ciContext.jpegRepresentation(
                 of: CIImage(cvPixelBuffer: buffer), colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.9]),
+                options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: Self.jpegQuality]),
                (try? jpeg.write(to: self.folder.appendingPathComponent(name), options: .atomic)) != nil {
                 let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
                 let k = [intrinsics[0][0], intrinsics[1][1], intrinsics[2][0], intrinsics[2][1]]
                 self.photos.append(LidarManifest.Photo(
                     file: name, width: width, height: height, timestamp: seconds, transform: flat, intrinsics: k,
                     trackingState: "normal", exposure: exposure,
-                    depth: depth.flatMap { self.writeDepth($0, index: index, photoSize: (width, height), photoIntrinsics: k) }))
+                    depth: depth.flatMap { self.writeDepth($0, index: index, photoSize: (width, height), photoIntrinsics: k) },
+                    motion: motion))
+                if let anchorID { self.photoAnchors[name] = anchorID }
             }
             let count = self.photos.count
             DispatchQueue.main.async {
@@ -287,6 +317,44 @@ final class LidarCapture: NSObject, ObservableObject {
             replacing: name, held: .init(
                 transform: transform, width: CVPixelBufferGetWidth(buffer),
                 exposureDuration: frame.camera.exposureDuration, trackingNormal: tracking))
+    }
+
+    // MARK: Motion and pose anchors
+
+    /// Drops an anchor at a camera pose and returns its identifier, nil without a session.
+    private func addPoseAnchor(at transform: simd_float4x4) -> UUID? {
+        guard let session else { return nil }
+        let anchor = ARAnchor(name: Self.poseAnchorName, transform: transform)
+        session.add(anchor: anchor)
+        return anchor.identifier
+    }
+
+    /// The pose anchors as ARKit has them now, as manifest transforms. Poses that are no longer rigid are left out.
+    private static func refinedPoses(in frame: ARFrame) -> [UUID: [Float]] {
+        var poses: [UUID: [Float]] = [:]
+        for anchor in frame.anchors where anchor.name == poseAnchorName && LidarBundleValidator.isRigid(anchor.transform) {
+            poses[anchor.identifier] = flatten(anchor.transform)
+        }
+        return poses
+    }
+
+    /// Distance to the nearer surfaces in view (meters), from a sparse sample of this frame's depth.
+    private static func sceneDepth(of frame: ARFrame) -> Float? {
+        guard let buffer = frame.sceneDepth?.depthMap,
+              CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_DepthFloat32 else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        guard width > 0, height > 0, bytesPerRow >= width * 4 else { return nil }
+        var samples: [Float] = []
+        samples.reserveCapacity((width / 8 + 1) * (height / 8 + 1))
+        for y in Swift.stride(from: 4, to: height, by: 8) {
+            let row = base.advanced(by: y * bytesPerRow).assumingMemoryBound(to: Float.self)
+            for x in Swift.stride(from: 4, to: width, by: 8) { samples.append(row[x]) }
+        }
+        return CameraMotion.representativeDepth(samples)
     }
 
     // MARK: Coverage
@@ -476,9 +544,6 @@ final class LidarCapture: NSObject, ObservableObject {
         }
     }
 
-    /// Longest edge of a saved still. Full-resolution frames are scaled down to this.
-    private static let maximumStillEdge = 3024
-
     private func swapInStill(_ frame: ARFrame, for name: String) {
         let buffer = frame.capturedImage
         let intrinsics = frame.camera.intrinsics
@@ -486,6 +551,7 @@ final class LidarCapture: NSObject, ObservableObject {
         let exposure = LidarManifest.Exposure(
             duration: frame.camera.exposureDuration, offset: frame.camera.exposureOffset,
             ambientIntensity: frame.lightEstimate.map { Float($0.ambientIntensity) })
+        let anchorID = addPoseAnchor(at: frame.camera.transform)
         encodeQueue.async { [weak self] in
             guard let self, self.acceptingWrites, let i = self.photos.firstIndex(where: { $0.file == name }) else { return }
             let sourceWidth = CVPixelBufferGetWidth(buffer), sourceHeight = CVPixelBufferGetHeight(buffer)
@@ -496,14 +562,20 @@ final class LidarCapture: NSObject, ObservableObject {
             guard width > 0, height > 0,
                   let jpeg = self.ciContext.jpegRepresentation(
                     of: image, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                    options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.9]),
+                    options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: Self.jpegQuality]),
                   (try? jpeg.write(to: self.folder.appendingPathComponent(name), options: .atomic)) != nil,
                   let k = LidarGeometry.Intrinsics([intrinsics[0][0], intrinsics[1][1], intrinsics[2][0], intrinsics[2][1]])?
                     .scaled(from: (sourceWidth, sourceHeight), to: (width, height)) else { return }
             // Keep the video depth's original pose before changing the photo to the still's view.
             // The photo timestamp stays in capture order; depth has its own original timestamp.
             var photo = self.photos[i]
-            if let depth = photo.detachDepthFrame() { self.depthFrames.append(depth) }
+            if let depth = photo.detachDepthFrame() {
+                // The video frame's anchor now describes the detached depth; the photo gets the still's anchor.
+                if let videoAnchor = self.photoAnchors[name] { self.depthAnchors[depth.file] = videoAnchor }
+                self.depthFrames.append(depth)
+            }
+            self.photoAnchors[name] = anchorID
+            photo.motion = nil  // the still was exposed at its own moment, which was not measured
             photo.width = width; photo.height = height
             photo.transform = flat; photo.intrinsics = k.array
             photo.exposure = exposure; photo.highRes = true
@@ -634,6 +706,9 @@ final class LidarCapture: NSObject, ObservableObject {
         guard let frame = session?.currentFrame else { state = .failed(Failure.noFrame.localizedDescription); throw Failure.noFrame }
         // ARKit may keep changing its mesh buffers, so copy them now; everything after works on the copies.
         let chunks = Self.snapshot(frame.anchors.compactMap { $0 as? ARMeshAnchor })
+        // Read in the same instant as the mesh, so the refined poses and the mesh share one map.
+        let refined = Self.refinedPoses(in: frame)
+        let interruptions = trackingInterruptions
         session?.pause()
         let task = Task.detached(priority: .userInitiated) { [self] () -> Result in
             let recorded = await self.drainRecording()  // waits for photos and depth still being written
@@ -644,10 +719,17 @@ final class LidarCapture: NSObject, ObservableObject {
                 try PLYWriter.write(chunks: chunks, to: meshDirectory.appendingPathComponent("scan.ply"))
             }
             try Task.checkCancellation()
+            var photos = recorded.photos, depthFrames = recorded.depthFrames
+            for i in photos.indices {
+                photos[i].refinedTransform = recorded.photoAnchors[photos[i].file].flatMap { refined[$0] }
+            }
+            for i in depthFrames.indices {
+                depthFrames[i].refinedTransform = recorded.depthAnchors[depthFrames[i].file].flatMap { refined[$0] }
+            }
             let manifest = try Self.validated(LidarManifest(
                 createdAt: Date(), device: device, vertexCount: summary.vertexCount,
-                triangleCount: summary.triangleCount, photos: recorded.photos,
-                depthFrames: recorded.depthFrames, room: room), in: folder)
+                triangleCount: summary.triangleCount, photos: photos, depthFrames: depthFrames, room: room,
+                accuracy: LidarManifest.Accuracy(photos: photos, trackingInterruptions: interruptions)), in: folder)
             try CaptureManifest.encoder().encode(manifest).write(to: folder.appendingPathComponent("manifest.json"), options: .atomic)
             return Result(folder: folder, photos: recorded.photos.count, triangles: summary.triangleCount)
         }
@@ -695,18 +777,29 @@ final class LidarCapture: NSObject, ObservableObject {
         // Rebuild so format and capabilities follow what is actually in the bundle.
         let rebuilt = LidarManifest(
             createdAt: manifest.createdAt, device: manifest.device, vertexCount: manifest.vertexCount,
-            triangleCount: manifest.triangleCount, photos: manifest.photos, depthFrames: frames, room: room)
+            triangleCount: manifest.triangleCount, photos: manifest.photos, depthFrames: frames, room: room,
+            accuracy: manifest.accuracy)
         let remaining = LidarBundleValidator.validate(manifest: rebuilt, in: folder)
         if let first = remaining.first { throw Failure.invalidBundle(first.description) }
         return rebuilt
     }
 
-    private func drainRecording() async -> (photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]) {
-        // `photos` and `depthFrames` are only touched on `encodeQueue`, so handing `self` to that queue is safe.
+    /// Everything `encodeQueue` has recorded, handed over once its queued writes are done.
+    private struct Recording {
+        var photos: [LidarManifest.Photo]
+        var depthFrames: [LidarManifest.DepthFrame]
+        var photoAnchors: [String: UUID]
+        var depthAnchors: [String: UUID]
+    }
+
+    private func drainRecording() async -> Recording {
+        // The recorded state is only touched on `encodeQueue`, so handing `self` to that queue is safe.
         nonisolated(unsafe) let capture = self
-        return await withCheckedContinuation { (done: CheckedContinuation<(photos: [LidarManifest.Photo], depthFrames: [LidarManifest.DepthFrame]), Never>) in
+        return await withCheckedContinuation { (done: CheckedContinuation<Recording, Never>) in
             encodeQueue.async {
-                done.resume(returning: (capture.photos, capture.depthFrames.sorted { $0.timestamp < $1.timestamp }))
+                done.resume(returning: Recording(
+                    photos: capture.photos, depthFrames: capture.depthFrames.sorted { $0.timestamp < $1.timestamp },
+                    photoAnchors: capture.photoAnchors, depthAnchors: capture.depthAnchors))
             }
         }
     }
